@@ -82,13 +82,6 @@ candlesLow.sort(lambda a,b: cmp(a.time,b.time))
 
 closings = 0
 if(len(positions)==1):
-    # limit ourselves to same BUY/SELL as pre-existing
-    # if(positions[0].short.units==0):
-    #     avoidSELL=True
-    # else:
-    #     avoidBUY=True
-    # print "Will avoid {} {} as we have an existing position...".format("BUYing" if(avoidBUY) else "SELLing", args.select)
-    # we are currentl holding a position... Let's make it count
     tradeIDs = (positions[0].long.tradeIDs if(positions[0].long.tradeIDs is not None)else positions[0].short.tradeIDs)
     # pdb.set_trace()
     if(tradeIDs is not None and len(tradeIDs)>1):
@@ -205,7 +198,7 @@ while(True):
 
 
         if(queue.full()):
-            mbid,mask, mspread,sdev = queueSecretSauce(queue)
+            mbid,mask, mspread,sdev, bidTrigger, askTrigger = queueSecretSauce(queue)
         print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {}pips, sdev={}pips".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
         print "Quiet range: bid>{} and ask<{}".format(bidTrigger,askTrigger)
         print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
