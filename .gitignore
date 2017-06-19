@@ -1,0 +1,2 @@
+# exclude compiled pythong artifacts
+*.pyc
