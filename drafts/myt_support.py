@@ -115,7 +115,7 @@ class TradeLoop(object):
         self.pipFactor   = pipFactor
         self.displayPrecision = zInstrument.displayPrecision
         self.instrument = zInstrument
-
+        
         self.account = account
         self.accountTime = time.time()
 

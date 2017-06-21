@@ -103,14 +103,15 @@ rsiLowMaker.setSkipper(skipIdenticalCandles)
 
 
 def PrintCurrentStats():
+    bt,at = round(bidTrigger, looper.displayPrecision), round(askTrigger, looper.displayPrecision)
     print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {} pips, sdev: {}pips ".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
-    print "Quiet range: bid>{} and ask<{}".format(bidTrigger,askTrigger)
+    print "Quiet range: "+ formatTwoNumberWith("base: {} - bid>{} or ask<{}",bt,at)
     print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
 
-def PrintCurrentRead(deltaTime, currentCandle,rsi):
 
-    bidc = str(currentCandle.bid.c)
-    askc = str(currentCandle.ask.c)
+def formatTwoNumberWith(msg, bidc, askc):
+    bidc = str(bidc)
+    askc = str(askc)
     base = ""
     baseL = 0
     for l in range(len(bidc)):
@@ -133,8 +134,18 @@ def PrintCurrentRead(deltaTime, currentCandle,rsi):
     while(len(bidc)<maxlen): bidc += "."
     while(len(askc)<maxlen): askc += "."
 
+    return msg.format(base, bidc,askc)
 
-    print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, bidc,askc, rsiLowMaker.RSI)
+
+def PrintCurrentRead(deltaTime, currentCandle,rsi):
+
+    bidc = currentCandle.bid.c
+    askc = currentCandle.ask.c
+
+
+
+    print "{} -- {} -- {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], \
+       formatTwoNumberWith("base:{} -- bid:{} -- ask:{}",bidc,askc), rsiLowMaker.RSI)
     # print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, currentCandle.bid.c,currentCandle.ask.c, rsiLowMaker.RSI)
 
 
