@@ -129,7 +129,7 @@ class TradeLoop(object):
         if(force or time.time() - self.accountTime > self.freshFrequency_ms/1000.0):
             try:
                 whenT = time.time()
-                accountResp = self.api.account.get(accountId)
+                accountResp = self.api.account.get(self.accountId)
                 self.account = accountResp.get('account', '200')
                 self.accountTime = time.time()
             except:
