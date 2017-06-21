@@ -35,7 +35,7 @@ cfg = oandaconfig.Config()
 cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 
-looper = TradeLoop(api, cfg.active_account, args.select)
+looper = TradeLoop(api, cfg.active_account, args.select, 200*1000.0)
 looper.initialize()
 
 def getSortedCandles(loopr, kwargs):
@@ -107,6 +107,35 @@ def PrintCurrentStats():
     print "Quiet range: bid>{} and ask<{}".format(bidTrigger,askTrigger)
     print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
 
+def PrintCurrentRead(deltaTime, currentCandle,rsi):
+
+    bidc = str(currentCandle.bid.c)
+    askc = str(currentCandle.ask.c)
+    base = ""
+    baseL = 0
+    for l in range(len(bidc)):
+        if(bidc[0:l] == askc[0:l]):
+            base = bidc[0:l]
+            baseL=l
+        else:
+            base = base + "*"
+
+    bidc=list(bidc)
+    askc=list(askc)
+    for l in range(len(bidc)):
+        bidc[l] = " " if(l<baseL) else bidc[l]
+    for l in range(len(askc)):
+        askc[l] = " " if(l<baseL) else askc[l]
+
+    bidc="".join(bidc)
+    askc="".join(askc)
+    maxlen=max(len(bidc), len(askc))
+    while(len(bidc)<maxlen): bidc += "."
+    while(len(askc)<maxlen): askc += "."
+
+
+    print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, bidc,askc, rsiLowMaker.RSI)
+    print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, currentCandle.bid.c,currentCandle.ask.c, rsiLowMaker.RSI)
 
 
 
@@ -154,7 +183,8 @@ while(True):
     for c in candlesLow:
         rsiLowMaker.add(c)
 
-    print "{} -- {} -- bid: {} -- ask: {} (recent close) - RSI:{}".format(round(blip-loopStart,1), candlesLow[-1].time, candlesLow[-1].bid.c, candlesLow[-1].ask.c, rsiLowMaker.RSI)
+    # print "{} -- {} -- bid: {} -- ask: {} (recent close) - RSI:{}".format(round(blip-loopStart,1), candlesLow[-1].time, candlesLow[-1].bid.c, candlesLow[-1].ask.c, rsiLowMaker.RSI)
+    PrintCurrentRead(blip-loopStart, candlesLow[-1], rsiLowMaker.RSI)
 
     c = candlesLow[-1]
 
