@@ -18,7 +18,7 @@ parser.add_argument('--depth', nargs='?', type=int, default=20)
 parser.add_argument('--drag', nargs='?', type=int, default=50)
 parser.add_argument('--slice', nargs='?', default='M5')
 parser.add_argument('--trigger', nargs='?', type=float, default=2.0)
-parser.add_argument('--sdf', type='float', default=0.3)
+parser.add_argument('--sdf', type=float, default=0.3)
 parser.add_argument('--risk', nargs='?', type=float, default=1.0)
 parser.add_argument('--profit', nargs='?', type=float, default=3.0)
 parser.add_argument('--rsi', nargs='?', default="14:31-71")
@@ -26,6 +26,7 @@ parser.add_argument('--after', nargs='?', type=int, default=0)
 parser.add_argument('--stop', nargs='?', type=int, default = 1000)
 parser.add_argument('--debug', action='store_true')
 parser.add_argument('--pessimist', action='store_true')
+parser.add_argument('--verbose', action='store_true')
 
 # parser.add_argument('--level', nargs='?', type=int, default=4)
 args = parser.parse_args()
@@ -90,17 +91,24 @@ for c in candles:
 
         rsi = rsiMaker.RSI
         if(pos1 is None):
-            if(c.ask.o < mbid-args.trigger+mspread+args.sdf*sdev and not avoidBUY and  rsi<rsiMaker.oscLow*1.05):
-                # it is low, we should buy
-                pos1 = posMaker.make(True, c,args.size, c.bid.o  - args.risk*mspread, c.ask.o+args.profit*mspread)
-                if(printOK): print("{0} -- Taking BUY position at Asking price of {1}  medians[bid={2}, 10Kspread={3}, 10Ksd={4}] RSI={5}".format(\
-                                   c.time, c.ask.o, mbid,mspread*10000,sdev*10000, rsi))
-                if(args.debug): pdb.set_trace()
-            elif(c.bid.o > mask+args.trigger*mspread-args.sdf*sdev) and not avoidSELL and  rsi>rsiMaker.oscHigh*0.95):
-                # it is high, we should sell
-                pos1 = posMaker.make(False, c, args.size, c.ask.o + args.risk*mspread, c.bid.o-args.profit*mspread)
-                if(printOK): print ("{0} -- Taking SELL position at Bidding price {1} of  medians[bid={2}, 10Kspread={3}, 10Ksd={4}] RSI={5}".format(c.time, c.ask.o, mbid,mspread*10000,sdev*10000, rsi))
-                if(args.debug): pdb.set_trace()
+            if(c.ask.o < mbid-args.trigger+mspread+args.sdf*sdev and not avoidBUY):
+                if(rsi<rsiMaker.oscLow*1.05):
+                    # it is low, we should buy
+                    pos1 = posMaker.make(True, c,args.size, c.bid.o  - args.risk*mspread, c.ask.o+args.profit*mspread)
+                    if(printOK): print("{0} -- Taking BUY position at Asking price of {1}  medians[bid={2}, 10Kspread={3}, 10Ksd={4}] RSI={5}".format(\
+                                       c.time, c.ask.o, mbid,mspread*10000,sdev*10000, rsi))
+                    if(args.debug): pdb.set_trace()
+                else:
+                    if(args.verbose): print "{0} -- BUY position not desirable with RSI={1}, though median ask={2} and current ask={3}".format(c.time, rsi, mask, c.ask.o)
+
+            elif(c.bid.o > mask+args.trigger*mspread-args.sdf*sdev and not avoidSELL):
+                if(rsi>rsiMaker.oscHigh*0.95):
+                    # it is high, we should sell
+                    pos1 = posMaker.make(False, c, args.size, c.ask.o + args.risk*mspread, c.bid.o-args.profit*mspread)
+                    if(printOK): print ("{0} -- Taking SELL position at Bidding price {1} of  medians[bid={2}, 10Kspread={3}, 10Ksd={4}] RSI={5}".format(c.time, c.bid.o, mbid,mspread*10000,sdev*10000, rsi))
+                    if(args.debug): pdb.set_trace()
+                else:
+                    if(args.verbose): print "{0} -- SELL position not desirable with RSI={1}, though median bid={2} and current bid={3}".format(c.time, rsi, mbid, c.bid.o)
 
     if(pos1 is not None):
         event,todo,benef, benefRatio = pos1.timeToClose(c, rsiMaker.isLow(), rsiMaker.isHigh())

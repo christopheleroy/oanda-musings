@@ -5,7 +5,7 @@ import v20
 from forwardInstrument import InstrumentWrapper, PathFinder
 from teeth import MovingQueue
 import pdb, time
-from myt_support import candleTime, summarize, downloads, PositionFactory, frequency, queueSecretSauce
+from myt_support import candleTime, summarize, downloads, PositionFactory, frequency, queueSecretSauce, TradeLoop
 import numpy as np
 from oscillators import OscillatorCalculation
 
@@ -35,32 +35,28 @@ cfg = oandaconfig.Config()
 cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 
-accountResp = api.account.get(cfg.active_account)
-instResp    = api.account.instruments(cfg.active_account)
-account = accountResp.get('account', '200')
-instruments = instResp.get('instruments','200')
-selectedInstruments = filter(lambda p: p.name == args.select,instruments)
-if(len(selectedInstruments)==0):
-    raise ValueError("Select instrument not found for active account: " + args.select)
-zInstrument = selectedInstruments[0]
+looper = TradeLoop(api, cfg.active_account, args.select)
+looper.initialize()
 
-pipLocation = zInstrument.pipLocation
-pipFactor = 10**(pipLocation)
-displayPrecision = zInstrument.displayPrecision
-print (pipLocation,displayPrecision)
+def getSortedCandles(loopr, kwargs):
+    candles = loopr.api.instrument.candles(loopr.instrumentName, **kwargs).get('candles',200)
+    candles.sort(lambda a,b: cmp(a.time, b.time))
+    return candles
+
+
+pipFactor = looper.pipFactor
 
 rsiHighMaker = OscillatorCalculation(args.rsi)
 rsiLowMaker  = OscillatorCalculation(args.rsi)
 posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
 
-positions = filter(lambda p: p.instrument == args.select, account.positions)
-
+positions = looper.findPositionsRaw()
 if(len(positions)>1):
     raise ValueError("api returned too many positions for the same instrument...")
 
 
-pos1 = None
-pos2 = None
+pos1 = None;pos1Id=None
+pos2 = None;pos2Id=None
 
 drag = args.drag if(len(positions)==0) else 0
 slicing = args.slice.split("/")
@@ -69,15 +65,8 @@ slicing = args.slice.split("/")
 kwargsHigh = { "count": (2*args.depth), "price": "BA", "granularity": slicing[0] }
 kwargsLow =  { "count": (2*args.depth), "price": "BA", "granularity": slicing[1] }
 
-resp = api.instrument.candles(args.select, **kwargsHigh)
-candlesHigh = resp.get('candles', 200)
-resp = api.instrument.candles(args.select, **kwargsLow)
-candlesLow= resp.get('candles', 200)
-
-
-
-candlesHigh.sort(lambda a,b: cmp(a.time,b.time))
-candlesLow.sort(lambda a,b: cmp(a.time,b.time))
+candlesHigh = getSortedCandles(looper, kwargsHigh)
+candlesLow  = getSortedCandles(looper, kwargsLow)
 
 
 closings = 0
@@ -89,6 +78,7 @@ if(len(positions)==1):
         if(pos1 is None):
             raise RuntimeError("Unable to find position correctly (bug?)")
         else:
+            pos1Id = tradesIDs[0]
             print "Found trade on the account..."
 
 queue = MovingQueue(args.depth)
@@ -112,6 +102,15 @@ rsiHighMaker.setSkipper(skipIdenticalCandles)
 rsiLowMaker.setSkipper(skipIdenticalCandles)
 
 
+def PrintCurrentStats():
+    print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {} pips, sdev: {}pips ".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
+    print "Quiet range: bid>{} and ask<{}".format(bidTrigger,askTrigger)
+    print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
+
+
+
+
+
 print "Digest the higher candle data..."
 for c in candlesHigh:
     queue.add(c)
@@ -123,9 +122,9 @@ for c in candlesHigh:
 for c in candlesLow:
     rsiLowMaker.add(c)
 
-print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {} pips, sdev: {}pips ".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
-print "Quiet range: bid>{} and ask<{}".format(bidTrigger,askTrigger)
-print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
+
+
+PrintCurrentStats()
 
 loopFrequency = float(frequency(slicing[1]))
 flushFrequency = float(frequency(slicing[0]))
@@ -135,10 +134,14 @@ kwargsHigh['count']=2
 kwargsLow['count']=4
 
 loopStart = time.time()
+tradeErrorMax = 10
+tradeErrorSleep = 600
+tradeErrorCount = 0
 
 while(True):
     now = time.time()
     time.sleep(loopFrequency-2 if(loopFrequency>5)else(loopFrequency-1 if(loopFrequency>1)else loopFrequency))
+    looper.refresh()
     blip = time.time()
     resp = api.instrument.candles(args.select, **kwargsLow)
     candlesLow= resp.get('candles', 200)
@@ -151,7 +154,7 @@ while(True):
     for c in candlesLow:
         rsiLowMaker.add(c)
 
-    print "{} -- {} -- bid: {} -- ask: {} (recent close) - RSI:{}".format(round(blip-loopStart,3), candlesLow[-1].time, candlesLow[-1].bid.c, candlesLow[-1].ask.c, rsiLowMaker.RSI)
+    print "{} -- {} -- bid: {} -- ask: {} (recent close) - RSI:{}".format(round(blip-loopStart,1), candlesLow[-1].time, candlesLow[-1].bid.c, candlesLow[-1].ask.c, rsiLowMaker.RSI)
 
     c = candlesLow[-1]
 
@@ -172,17 +175,22 @@ while(True):
             if(args.debug): pdb.set_trace()
             withRandom = 'none'
 
-        if(pos1 is not None and args.execute):
+        if(pos1 is not None and pos1Id is None and args.execute):
             tryIt = posMaker.executeTrade(api, account, args.select, pos1)
             if(tryIt is not None):
-                account=tryIt[0]
-                pos1 = tryIt[1]
+                pos1   = tryIt[0]
+                pos1Id = tryIt[1]
             else:
                 print("Position could not be executed because of market conditions or broker issues - or other exception")
+                tradeError+=1
+                if(tradeError % tradeErrorMax):
+                    print "Pausing {} seconds because of too many trade errors".format(tradeErrorSleep)
+                    time.sleep(tradeErrorSleep)
 
     elif(pos1 is not None):
         event,todo,benef, benefRatio = pos1.timeToClose(c, rsiLowMaker.isLow(), rsiLowMaker.isHigh())
         if(todo=='close'):
+            if(args.execute): pdb.set_trace()
             print( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, rsi, benefRatio))
             print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c)))
 
@@ -199,9 +207,7 @@ while(True):
 
         if(queue.full()):
             mbid,mask, mspread,sdev, bidTrigger, askTrigger = queueSecretSauce(queue)
-        print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {}pips, sdev={}pips".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
-        print "Quiet range: bid>{} and ask<{}".format(bidTrigger,askTrigger)
-        print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
+        PrintCurrentStats()
         if(pos1 is not None):
             print pos1
             print "Latest bid:{}, ask:{}".format(c.bid.o, c.ask.o)

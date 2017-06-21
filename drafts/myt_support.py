@@ -1,20 +1,27 @@
 import datetime
+import time
 import dateutil.parser
 import numpy as np
 from forwardInstrument import Opportunity
 import pdb
 
-__dtconv = {}
+__dtconv = {} # a hash to remember conversion of time-strings to time-integers, so that we don't convert them twice (or over and over again)
 
 def candleTime(c):
+    """ translate the time-strings from oanda service candle-times (start time or end time of a candle) to time-integers.
+         Note: this uses a cache. if you have very long running processes, the cache perhaps should be cleaned to save memory.
+         No such provision yet."""
     if(not __dtconv.has_key(c.time)):
         __dtconv[ c.time ] = int(dateutil.parser.parse(c.time).strftime("%s"))
     return __dtconv[c.time]
 
+
 def _find_(lam, coll):
-    them = filter(lam, coll)
-    if(len(them)>0):
-        return them[0]
+    """return the first element that satisfy a lambda-criterion in a collection """
+    for that in coll:
+        ok = lam(that)
+        if(ok): return that
+
     return None
 
 def summarize(forBUY, ci, lastExtreme,pf,trSize,iname,lastTime):
@@ -40,6 +47,7 @@ def summarize(forBUY, ci, lastExtreme,pf,trSize,iname,lastTime):
 
 
 def downloads(slice):
+    """ return the slice of neighboring magnitude to a slice. eg for M5, slices M1, M5, M15, H1 are considered of neighboring magnitudes"""
     _ = {
         "M1":["S5","M1","M15","H1"],
         "M5":["M1","M5","M15","H1"],
@@ -52,6 +60,7 @@ def downloads(slice):
 
 
 def frequency(slice):
+    """for a slice name (M1, M5, S1, D or W etc) of the oanda services, return the frequency in seconds"""
     _ = {
         "S": 1,
         "M": 60,
@@ -79,8 +88,67 @@ def queueSecretSauce(queue, trigger=3,sdf=0.3):
 
 
 
+class TradeLoop(object):
+    def __init__(self, api, accountId, instrumentName, freshFrequency_ms=1200000.0):
+        self.api = api
+        self.accountId = accountId
+        self.instrumentName = instrumentName
+        self.freshFrequency_ms = freshFrequency_ms
+
+
+    def initialize(self):
+        api = self.api
+        accountId = self.accountId
+        accountResp = api.account.get(accountId)
+        instResp    = api.account.instruments(accountId)
+        account = accountResp.get('account', '200')
+        instruments = instResp.get('instruments','200')
+        selectedInstruments = filter(lambda p: p.name == self.instrumentName, instruments)
+        if(len(selectedInstruments)==0):
+            raise ValueError("Select instrument not found for  account: " + args.instrumentName)
+        zInstrument = selectedInstruments[0]
+
+        pipLocation = zInstrument.pipLocation
+        pipFactor = 10**(pipLocation)
+
+        self.pipLocation = pipLocation
+        self.pipFactor   = pipFactor
+        self.displayPrecision = zInstrument.displayPrecision
+        self.instrument = zInstrument
+
+        self.account = account
+        self.accountTime = time.time()
+
+    def findPositionsRaw(self):
+        self.refresh()
+        me = self.instrumentName
+
+        return filter(lambda p: p.instrument == me, self.account.positions)
+
+    def refresh(self, force=False, raiseX=True):
+        if(force or time.time() - self.accountTime > self.freshFrequency_ms/1000.0):
+            try:
+                whenT = time.time()
+                accountResp = self.api.account.get(accountId)
+                self.account = accountResp.get('account', '200')
+                self.accountTime = time.time()
+            except:
+                print "issue refreshing account ... skipping ..."
+                if(force or raiseX): raise
+
+
+
+
+
+
+
 class PositionFactory(object):
+    """A factory class to prepare Position object"""
     def __init__(self, current=50,extreme=50):
+        """instantiate a factory, with current/extreme ratio factors. Default 50 / 50.
+           the current/extreme ratio factors help decide the likely price one would think they can expect from a candle.
+           For example if a candle has a ask open=110, highest=120, lowest=105, close=105, with 50/50
+           the expect price (on BUY) would be (110+120)/2 = 115. With 70/30, it would be (70*110+30*120)/(70+30) = 113. """
         self.current = float(current)
         self.extreme = float(extreme)
 
@@ -106,7 +174,16 @@ class PositionFactory(object):
             return Position(forBUY, c, size, saveLoss, takeProfit, (self.current, self.extreme) )
         return None
 
-    def executeTrade(self, api, v20Account, instrument, pos,wait=1200):
+    def findTradeInAccount(self, looper, pos, force=False):
+        looper.refresh(force)
+
+
+    def executeTrade(self, api, looper, pos,wait=1200,noMore=5):
+        """Execute a trade for a position, and a looper.
+           On success, returns a 2-tuple: position object identified after successful trade, trade id
+           When trade-id is None, the position object is the same as originally thought, the trade hasn't happened yet
+           On failure, the 2-tuple is not returned, but None is returned. Some other issue at the broker (or with the order) have occurred"""
+
         kwargs = {}
         kwargs['instrument'] = instrument
         # kwargs['price']=pos.entryQuote.ask.o if(pos.forBUY) else pos.entryQuote.bid.o
@@ -123,20 +200,23 @@ class PositionFactory(object):
             print "Position / Trade could not be executed..."
             print response.body
         else:
-            import time
             newTrades =[]
-            v20AccountNew = None
+            prevTradeIDs = map(lambda t: t.id, looper.account.trades)
+
             while(len(newTrades)==0):
                 time.sleep(wait/1000.0)
-                accResponse = api.account.get(v20Account.id)
-                v20AccountNew = accResponse.get('account', '200')
-                prevTradeIDs = map(lambda t: t.id, v20Account.trades)
-                import pdb; pdb.set_trace()
-                newTrades = [ t for t in v20AccountNew.trades if t.id not in prevTradeIDs and t.instrument == instrument ]
-                if(len(newTrades)==0): print "new trade not executed yet - waiting again..."
+                looper.refresh(True)
+                newTrades = [ t for t in looper.account.trades if t.id not in prevTradeIDs and t.instrument == loop.instrumentName ]
+                if(len(newTrades)==0):
+                    noMore -= 1
+                    if(noMore>0):
+                        print "new trade not executed yet - waiting again..."
+                    else:
+                        print "new trade not executed yet - but continuing..."
+                        return pos, None
 
-            newPos = self.makeFromExistingTrade(pos.entryQuote, v20AccountNew, newTrades[0].id)
-            return v20AccountNew, newPos
+            newPos = self.makeFromExistingTrade(pos.entryQuote, looper.account, newTrades[0].id)
+            return newPos, newTrades[0].idea
         return None
 
 
