@@ -27,6 +27,7 @@ parser.add_argument('--pessimist', action='store_true')
 parser.add_argument('--execute', action='store_true')
 parser.add_argument('--random', default='none')
 parser.add_argument('--sdf', default=0.3, type=float)
+parser.add_argument('--bf', default=20, type=float)
 
 # parser.add_argument('--level', nargs='?', type=int, default=4)
 args = parser.parse_args()
@@ -104,6 +105,7 @@ rsiLowMaker.setSkipper(skipIdenticalCandles)
 
 def PrintCurrentStats():
     bt,at = round(bidTrigger, looper.displayPrecision), round(askTrigger, looper.displayPrecision)
+    print "Intrument: {}".format(looper.instrumentName)
     print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {} pips, sdev: {}pips ".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
     print "Quiet range: "+ formatTwoNumberWith("base: {} - bid>{} or ask<{}",bt,at)
     print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
@@ -177,6 +179,7 @@ loopStart = time.time()
 tradeErrorMax = 10
 tradeErrorSleep = 600
 tradeErrorCount = 0
+lastBanner = 1
 
 while(True):
     now = time.time()
@@ -196,6 +199,10 @@ while(True):
 
     # print "{} -- {} -- bid: {} -- ask: {} (recent close) - RSI:{}".format(round(blip-loopStart,1), candlesLow[-1].time, candlesLow[-1].bid.c, candlesLow[-1].ask.c, rsiLowMaker.RSI)
     PrintCurrentRead(blip-loopStart, candlesLow[-1], rsiLowMaker.RSI)
+    if(lastBanner>args.bf):
+        PrintCurrentStats()
+        lastBanner=0
+    lastBanner+=1
 
     c = candlesLow[-1]
 
