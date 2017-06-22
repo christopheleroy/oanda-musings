@@ -75,11 +75,11 @@ if(len(positions)==1):
     tradeIDs = (positions[0].long.tradeIDs if(positions[0].long.tradeIDs is not None)else positions[0].short.tradeIDs)
     # pdb.set_trace()
     if(tradeIDs is not None and len(tradeIDs)>1):
-        pos1 = posMaker.makeFromExistingTrade(candlesHigh[0], account, tradeIDs[0])
+        pos1 = posMaker.makeFromExistingTrade(candlesHigh[0], looper.account, tradeIDs[0])
         if(pos1 is None):
             raise RuntimeError("Unable to find position correctly (bug?)")
         else:
-            pos1Id = tradesIDs[0]
+            pos1Id = tradeIDs[0]
             print "Found trade on the account..."
 
 queue = MovingQueue(args.depth)
@@ -104,7 +104,10 @@ rsiLowMaker.setSkipper(skipIdenticalCandles)
 
 
 def PrintCurrentStats():
-    bt,at = round(bidTrigger, looper.displayPrecision), round(askTrigger, looper.displayPrecision)
+    if(not queue.full()):
+        print "[no banner: queue is not full]"
+        return
+    bt = round(bidTrigger, looper.displayPrecision);at=round(askTrigger, looper.displayPrecision)
     print "Intrument: {}".format(looper.instrumentName)
     print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {} pips, sdev: {}pips ".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
     print "Quiet range: "+ formatTwoNumberWith("base: {} - bid>{} or ask<{}",bt,at)
@@ -133,8 +136,8 @@ def formatTwoNumberWith(msg, bidc, askc):
     bidc="".join(bidc)
     askc="".join(askc)
     maxlen=max(len(bidc), len(askc))
-    while(len(bidc)<maxlen): bidc += "."
-    while(len(askc)<maxlen): askc += "."
+    while(len(bidc)<maxlen): bidc += "0"
+    while(len(askc)<maxlen): askc += "0"
 
     return msg.format(base, bidc,askc)
 
@@ -186,9 +189,7 @@ while(True):
     time.sleep(loopFrequency-2 if(loopFrequency>5)else(loopFrequency-1 if(loopFrequency>1)else loopFrequency))
     looper.refresh()
     blip = time.time()
-    resp = api.instrument.candles(args.select, **kwargsLow)
-    candlesLow= resp.get('candles', 200)
-    candlesLow.sort(lambda a,b: cmp(a.time,b.time))
+    candlesLow = getSortedCandles(looper, kwargsLow)
 
     timeCost = time.time()-blip
     if(timeCost > 2.0):
@@ -210,28 +211,28 @@ while(True):
     if(pos1 is None):
         if(args.debug): pdb.set_trace()
         if((c.ask.o < askTrigger and  rsi<rsiLowMaker.oscLow*1.05) or(c.ask.o < mbid and withRandom == 'buy')):
-            # it is low, we should buy
+            # it is low (and rsi is close to oversold), we should buy
             pos1 = posMaker.make(True, c,args.size, c.bid.o  - args.risk*mspread, c.ask.o+args.profit*mspread)
             print("{0} -- Taking BUY position at Asking price of {1}  medians[bid={2}, 10Kspread={3}, spread={5}pips sd={4}pid] RSI={5}".format(\
                                c.time, c.ask.o, mbid,mspread*10000,sdev/pipFactor,mspread/pipFactor, rsi))
             if(args.debug): pdb.set_trace()
             withRandom = 'none'
         elif((c.bid.o > bidTrigger and  rsi>rsiLowMaker.oscHigh*0.95) or(c.bid.o>mask and withRandom == 'sell')):
-            # it is high, we should sell
+            # it is high (and rsi is close to overbought), we should sell
             pos1 = posMaker.make(False, c, args.size, c.ask.o + args.risk*mspread, c.bid.o-args.profit*mspread)
             print ("{0} -- Taking SELL position at Bidding price {1} of  medians[bid={2}, 10Kspread={3}, spread={6} pips, sd={4} pips] RSI={5}".format(c.time, c.ask.o, mbid,mspread*10000,sdev/pipFactor, rsi, mspread/pipFactor))
             if(args.debug): pdb.set_trace()
             withRandom = 'none'
 
         if(pos1 is not None and pos1Id is None and args.execute):
-            tryIt = posMaker.executeTrade(api, account, args.select, pos1)
+            tryIt = posMaker.executeTrade(looper, pos1)
             if(tryIt is not None):
                 pos1   = tryIt[0]
                 pos1Id = tryIt[1]
             else:
                 print("Position could not be executed because of market conditions or broker issues - or other exception")
-                tradeError+=1
-                if(tradeError % tradeErrorMax):
+                tradeErrorCount+=1
+                if(tradeErrorCount % tradeErrorMax == 0):
                     print "Pausing {} seconds because of too many trade errors".format(tradeErrorSleep)
                     time.sleep(tradeErrorSleep)
 
@@ -244,9 +245,7 @@ while(True):
 
     if(time.time() - lastPush > 1.05*flushFrequency):
         lastPush = time.time()
-        resp = api.instrument.candles(args.select, **kwargsHigh)
-        candlesHigh = resp.get('candles',200)
-        candlesHigh.sort(lambda a,b: cmp(a.time,b.time))
+        candlesHigh = getSortedCandles(looper, kwargsHigh)
 
         for ch in candlesHigh:
             queue.add(ch)

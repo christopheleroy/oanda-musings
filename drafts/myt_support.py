@@ -115,7 +115,7 @@ class TradeLoop(object):
         self.pipFactor   = pipFactor
         self.displayPrecision = zInstrument.displayPrecision
         self.instrument = zInstrument
-        
+        print "Display Precision: {}".format(self.displayPrecision)
         self.account = account
         self.accountTime = time.time()
 
@@ -178,22 +178,32 @@ class PositionFactory(object):
         looper.refresh(force)
 
 
-    def executeTrade(self, api, looper, pos,wait=1200,noMore=5):
+    def executeTrade(self, looper, pos,wait=1200,noMore=5):
         """Execute a trade for a position, and a looper.
            On success, returns a 2-tuple: position object identified after successful trade, trade id
            When trade-id is None, the position object is the same as originally thought, the trade hasn't happened yet
            On failure, the 2-tuple is not returned, but None is returned. Some other issue at the broker (or with the order) have occurred"""
 
         kwargs = {}
-        kwargs['instrument'] = instrument
+        kwargs['instrument'] = looper.instrumentName
         # kwargs['price']=pos.entryQuote.ask.o if(pos.forBUY) else pos.entryQuote.bid.o
         kwargs['units']=(pos.size if(pos.forBUY) else -pos.size)
         #kwargs['timeInForce']='GTC'
-        kwargs['stopLossOnFill'] = {"price": round(pos.saveLoss,5)}
-        kwargs['takeProfitOnFill'] = {"price": round(pos.takeProfit,5)}
+        # saveLoss / takeProfit - user minimal minimumTrailingStopDistance to not annoy the broker
+        mtsd = looper.instrument.minimumTrailingStopDistance
+        sl = pos.saveLoss;tp=pos.takeProfit
+        if(pos.forBUY):
+            sl = np.ceil(sl/mtsd)*mtsd
+            tp = np.floor(tp/mtsd)*mtsd
+        else:
+            sl = np.floor(sl/mtsd)*mtsd
+            tp = np.ceil(tp/mtsd)*mtsd
+        print "SL: {} >> {} ; TP: {} >> {} ".format(pos.saveLoss, sl, pos.takeProfit, tp)
+        kwargs['stopLossOnFill'] = {"price": sl }
+        kwargs['takeProfitOnFill'] = {"price": tp }
         print kwargs
-        response = api.order.market(
-            v20Account.id,
+        response = looper.api.order.market(
+            looper.accountId,
             **kwargs
         )
         if(not(response.status == 201 or response.status == '201')):
@@ -206,7 +216,7 @@ class PositionFactory(object):
             while(len(newTrades)==0):
                 time.sleep(wait/1000.0)
                 looper.refresh(True)
-                newTrades = [ t for t in looper.account.trades if t.id not in prevTradeIDs and t.instrument == loop.instrumentName ]
+                newTrades = [ t for t in looper.account.trades if t.id not in prevTradeIDs and t.instrument == looper.instrumentName ]
                 if(len(newTrades)==0):
                     noMore -= 1
                     if(noMore>0):
@@ -216,7 +226,7 @@ class PositionFactory(object):
                         return pos, None
 
             newPos = self.makeFromExistingTrade(pos.entryQuote, looper.account, newTrades[0].id)
-            return newPos, newTrades[0].idea
+            return newPos, newTrades[0].id
         return None
 
 
