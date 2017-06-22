@@ -137,8 +137,8 @@ class TradeLoop(object):
                     print "WARNING: too many tradeIDs for this position -- tough luck!"
                     raise ValueError("too many trades for single position?")
             else:
-                print "weird position with no trades..."
-                raise ValueError("trade-less position")
+                print "(trade less position)"
+
         self.positions = freshPositions
 
     def mkCandlestickTemplate(self, withMid = False):
