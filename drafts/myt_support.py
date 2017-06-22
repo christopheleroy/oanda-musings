@@ -193,11 +193,11 @@ class PositionFactory(object):
         mtsd = looper.instrument.minimumTrailingStopDistance
         sl = pos.saveLoss;tp=pos.takeProfit
         if(pos.forBUY):
-            sl = np.ceil(sl/mtsd)*mtsd
-            tp = np.floor(tp/mtsd)*mtsd
+            sl = round(np.ceil(sl/mtsd)*mtsd, looper.displayPrecision)
+            tp = round(np.floor(tp/mtsd)*mtsd, looper.displayPrecision)
         else:
-            sl = np.floor(sl/mtsd)*mtsd
-            tp = np.ceil(tp/mtsd)*mtsd
+            sl = round(np.floor(sl/mtsd)*mtsd, looper.displayPrecision)
+            tp = round(np.ceil(tp/mtsd)*mtsd,  looper.displayPrecision)
         print "SL: {} >> {} ; TP: {} >> {} ".format(pos.saveLoss, sl, pos.takeProfit, tp)
         kwargs['stopLossOnFill'] = {"price": sl }
         kwargs['takeProfitOnFill'] = {"price": tp }

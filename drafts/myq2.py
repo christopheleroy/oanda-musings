@@ -74,7 +74,7 @@ closings = 0
 if(len(positions)==1):
     tradeIDs = (positions[0].long.tradeIDs if(positions[0].long.tradeIDs is not None)else positions[0].short.tradeIDs)
     # pdb.set_trace()
-    if(tradeIDs is not None and len(tradeIDs)>1):
+    if(tradeIDs is not None and len(tradeIDs)>0):
         pos1 = posMaker.makeFromExistingTrade(candlesHigh[0], looper.account, tradeIDs[0])
         if(pos1 is None):
             raise RuntimeError("Unable to find position correctly (bug?)")
@@ -112,6 +112,8 @@ def PrintCurrentStats():
     print "Median Bid: {}, Ask: {}; 10Kspread: {}, spread: {} pips, sdev: {}pips ".format(mbid, mask, 10000*mspread, mspread/pipFactor, sdev/pipFactor)
     print "Quiet range: "+ formatTwoNumberWith("base: {} - bid>{} or ask<{}",bt,at)
     print "High RSI= {}\tLow RSI={}".format(rsiHighMaker.RSI, rsiLowMaker.RSI)
+    if(pos1 is not None):
+        print "{} - {}".format(pos1, pos1Id)
 
 
 def formatTwoNumberWith(msg, bidc, askc):
@@ -147,10 +149,12 @@ def PrintCurrentRead(deltaTime, currentCandle,rsi):
     bidc = currentCandle.bid.c
     askc = currentCandle.ask.c
 
+    position = "(none)"
+    if(pos1 is not None):
+        position = "[BUY]" if(pos1.forBUY) else "[SELL]"
 
-
-    print "{} -- {} -- {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], \
-       formatTwoNumberWith("base:{} -- bid:{} -- ask:{}",bidc,askc), rsiLowMaker.RSI)
+    print "{} -- {} -- {} (recent close) - RSI:{} -{}".format(round(deltaTime,1), currentCandle.time[0:15], \
+       formatTwoNumberWith("base:{} -- bid:{} -- ask:{}",bidc,askc), rsiLowMaker.RSI, position)
     # print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, currentCandle.bid.c,currentCandle.ask.c, rsiLowMaker.RSI)
 
 
