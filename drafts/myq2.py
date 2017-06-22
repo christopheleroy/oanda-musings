@@ -32,12 +32,18 @@ parser.add_argument('--bf', default=20, type=float)
 # parser.add_argument('--level', nargs='?', type=int, default=4)
 args = parser.parse_args()
 
+rsiHighMaker = OscillatorCalculation(args.rsi)
+rsiLowMaker  = OscillatorCalculation(args.rsi)
+posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
+
+
+
 cfg = oandaconfig.Config()
 cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 
 looper = TradeLoop(api, cfg.active_account, args.select, 200*1000.0)
-looper.initialize()
+looper.initialize(posMaker)
 
 def getSortedCandles(loopr, kwargs):
     candles = loopr.api.instrument.candles(loopr.instrumentName, **kwargs).get('candles',200)
@@ -47,19 +53,23 @@ def getSortedCandles(loopr, kwargs):
 
 pipFactor = looper.pipFactor
 
-rsiHighMaker = OscillatorCalculation(args.rsi)
-rsiLowMaker  = OscillatorCalculation(args.rsi)
-posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
-
-positions = looper.findPositionsRaw()
-if(len(positions)>1):
-    raise ValueError("api returned too many positions for the same instrument...")
-
-
 pos1 = None;pos1Id=None
 pos2 = None;pos2Id=None
 
-drag = args.drag if(len(positions)==0) else 0
+
+def RefreshPositions():
+    looper.refreshPositions(posMaker)
+    xpos1=None;xpos2=None;xpos1Id=None;xpos2Id=None
+    if(len(looper.positions)>0):
+        xpos1 = looper.positions[0]
+        xpos1Id = xpos1.tradeID
+        if(len(looper.positions)>1):
+            xpos2 = looper.positions[1]
+            xpos2Id = xpos2.tradeID
+    return (xpos1,xpos1Id,xpos2,xpos2Id)
+
+pos1,pos1Id,pos2,pos2Id = RefreshPositions()
+drag = args.drag if(pos1 is None) else 0
 slicing = args.slice.split("/")
 
 
@@ -71,16 +81,16 @@ candlesLow  = getSortedCandles(looper, kwargsLow)
 
 
 closings = 0
-if(len(positions)==1):
-    tradeIDs = (positions[0].long.tradeIDs if(positions[0].long.tradeIDs is not None)else positions[0].short.tradeIDs)
-    # pdb.set_trace()
-    if(tradeIDs is not None and len(tradeIDs)>0):
-        pos1 = posMaker.makeFromExistingTrade(candlesHigh[0], looper.account, tradeIDs[0])
-        if(pos1 is None):
-            raise RuntimeError("Unable to find position correctly (bug?)")
-        else:
-            pos1Id = tradeIDs[0]
-            print "Found trade on the account..."
+# if(len(positions)==1):
+#     tradeIDs = (positions[0].long.tradeIDs if(positions[0].long.tradeIDs is not None)else positions[0].short.tradeIDs)
+#     pdb.set_trace()
+#     if(tradeIDs is not None and len(tradeIDs)>0):
+#         pos1 = posMaker.makeFromExistingTrade(candlesHigh[0], looper.account, tradeIDs[0])
+#         if(pos1 is None):
+#             raise RuntimeError("Unable to find position correctly (bug?)")
+#         else:
+#             pos1Id = tradeIDs[0]
+#             print "Found trade on the account..."
 
 queue = MovingQueue(args.depth)
 
@@ -246,6 +256,10 @@ while(True):
             if(args.execute): pdb.set_trace()
             print( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, rsi, benefRatio))
             print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c)))
+            if(args.execute):
+                looper.refresh(True)
+                pos1,pos1Id,pos2,pos2Id = RefreshPositions()
+
 
     if(time.time() - lastPush > 1.05*flushFrequency):
         lastPush = time.time()
@@ -259,6 +273,7 @@ while(True):
         if(queue.full()):
             mbid,mask, mspread,sdev, bidTrigger, askTrigger = queueSecretSauce(queue)
         PrintCurrentStats()
+        pos1,pos1Id,pos2,pos2Id = RefreshPositions()
         if(pos1 is not None):
             print pos1
             print "Latest bid:{}, ask:{}".format(c.bid.o, c.ask.o)

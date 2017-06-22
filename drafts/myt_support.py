@@ -94,9 +94,10 @@ class TradeLoop(object):
         self.accountId = accountId
         self.instrumentName = instrumentName
         self.freshFrequency_ms = freshFrequency_ms
+        self.accountPositions = []
 
 
-    def initialize(self):
+    def initialize(self, posFactory=None):
         api = self.api
         accountId = self.accountId
         accountResp = api.account.get(accountId)
@@ -104,6 +105,7 @@ class TradeLoop(object):
         account = accountResp.get('account', '200')
         instruments = instResp.get('instruments','200')
         selectedInstruments = filter(lambda p: p.name == self.instrumentName, instruments)
+
         if(len(selectedInstruments)==0):
             raise ValueError("Select instrument not found for  account: " + args.instrumentName)
         zInstrument = selectedInstruments[0]
@@ -118,6 +120,34 @@ class TradeLoop(object):
         print "Display Precision: {}".format(self.displayPrecision)
         self.account = account
         self.accountTime = time.time()
+        if(posFactory is not None):
+            self.refreshPositions(posFactory)
+
+
+    def refreshPositions(self, positionFactory, force=False):
+        self.refresh(force)
+        freshPositions = []
+        for pos in self.findPositionsRaw():
+            tradeIDs = (pos.long.tradeIDs if(pos.long.tradeIDs is not None)else pos.short.tradeIDs)
+            if(tradeIDs is not None):
+                if(len(tradeIDs)==1):
+                    ppos = positionFactory.makeFromExistingTrade(self.mkCandlestickTemplate(), self.account, tradeIDs[0])
+                    freshPositions.append(ppos)
+                else:
+                    print "WARNING: too many tradeIDs for this position -- tough luck!"
+                    raise ValueError("too many trades for single position?")
+            else:
+                print "weird position with no trades..."
+                raise ValueError("trade-less position")
+        self.positions = freshPositions
+
+    def mkCandlestickTemplate(self, withMid = False):
+        tmpl = {"ask":{"c":0,"o":0,"l":0,"h":0},"bid":{"c":0,"o":0,"l":0,"h":0}}
+        if(withMid):
+            tmpl["mid"] = {"c":0,"o":0, "l":0,"h":0}
+
+        return self.api.instrument.Candlestick.from_dict(tmpl, self.api)
+
 
     def findPositionsRaw(self):
         self.refresh()
@@ -171,7 +201,10 @@ class PositionFactory(object):
             saveLoss = float(sl0.price)
             takeProfit = float(tp0.price)
             c.time = trade.openTime
-            return Position(forBUY, c, size, saveLoss, takeProfit, (self.current, self.extreme) )
+            npos = Position(forBUY, c, size, saveLoss, takeProfit, (self.current, self.extreme) )
+            npos.tradeID = tradeID
+            return npos
+
         return None
 
     def findTradeInAccount(self, looper, pos, force=False):
@@ -256,6 +289,7 @@ class Position(object):
         self.fracCurrent = fracTuple[0]
         self.fracExtreme = fracTuple[1]
         self.fracSum     = fracTuple[0]+fracTuple[1]
+        self.tradeID = None
 
     def relevantPrice(self, currentQuote):
         if(self.forBUY):
@@ -272,6 +306,9 @@ class Position(object):
             self.size,
             (self.entryQuote.ask.o if(self.forBUY)else self.entryQuote.bid.o),\
             self.saveLoss,self.takeProfit)
+
+    def hasTrade(self):
+        return self.tradeID is not None
 
     def timeToClose(self, currentQuote, rsiLow, rsiHigh):
         avgPrice = self.relevantPrice(currentQuote)
