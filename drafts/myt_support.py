@@ -225,15 +225,16 @@ class PositionFactory(object):
         # saveLoss / takeProfit - user minimal minimumTrailingStopDistance to not annoy the broker
         mtsd = looper.instrument.minimumTrailingStopDistance
         sl = pos.saveLoss;tp=pos.takeProfit
-        if(pos.forBUY):
-            sl = round(np.ceil(sl/mtsd)*mtsd, looper.displayPrecision)
-            tp = round(np.floor(tp/mtsd)*mtsd, looper.displayPrecision)
-        else:
-            sl = round(np.floor(sl/mtsd)*mtsd, looper.displayPrecision)
-            tp = round(np.ceil(tp/mtsd)*mtsd,  looper.displayPrecision)
-        print "SL: {} >> {} ; TP: {} >> {} ".format(pos.saveLoss, sl, pos.takeProfit, tp)
-        kwargs['stopLossOnFill'] = {"price": sl }
-        kwargs['takeProfitOnFill'] = {"price": tp }
+        
+        def nicepadding(x,prec):
+            x = str(x)
+            if(x.find(".")>0):
+                x += "00000"
+                return x[0:(x.index(".")+1+prec)]
+            return x
+
+        kwargs['stopLossOnFill'] = {"price": nicepadding(sl, looper.displayPrecision)}
+        kwargs['takeProfitOnFill'] = {"price": nicepadding(tp, looper.displayPrecision)}
         print kwargs
         response = looper.api.order.market(
             looper.accountId,
