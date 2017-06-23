@@ -27,7 +27,10 @@ parser.add_argument('--pessimist', action='store_true')
 parser.add_argument('--execute', action='store_true')
 parser.add_argument('--random', default='none')
 parser.add_argument('--sdf', default=0.3, type=float)
-parser.add_argument('--bf', default=20, type=float)
+parser.add_argument('--bf', default=20, type=float,
+                    help="frequency of displaying the 'banner', ever n times the tick is displayed")
+# parser.add_argument('--bt', action='store_true',
+#                     help="turns back-track on")
 
 # parser.add_argument('--level', nargs='?', type=int, default=4)
 args = parser.parse_args()
@@ -129,9 +132,10 @@ def PrintCurrentStats():
 def formatTwoNumberWith(msg, bidc, askc):
     bidc = str(bidc)
     askc = str(askc)
+    maxlen=max(len(bidc), len(askc))
     base = ""
     baseL = 0
-    for l in range(len(bidc)):
+    for l in range(maxlen):
         if(bidc[0:l] == askc[0:l]):
             base = bidc[0:l]
             baseL=l
@@ -141,13 +145,13 @@ def formatTwoNumberWith(msg, bidc, askc):
     bidc=list(bidc)
     askc=list(askc)
     for l in range(len(bidc)):
-        bidc[l] = " " if(l<baseL) else bidc[l]
+        bidc[l] = " " if(l<baseL-1) else bidc[l]
     for l in range(len(askc)):
-        askc[l] = " " if(l<baseL) else askc[l]
+        askc[l] = " " if(l<baseL-1) else askc[l]
 
     bidc="".join(bidc)
     askc="".join(askc)
-    maxlen=max(len(bidc), len(askc))
+
     while(len(bidc)<maxlen): bidc += "0"
     while(len(askc)<maxlen): askc += "0"
 
@@ -163,7 +167,7 @@ def PrintCurrentRead(deltaTime, currentCandle,rsi):
     if(pos1 is not None):
         position = "[BUY]" if(pos1.forBUY) else "[SELL]"
 
-    print "{} -- {} -- {} (recent close) - RSI:{} -{}".format(round(deltaTime,1), currentCandle.time[0:15], \
+    print "{} -- {} -- {} (recent close) - RSI:{} -{}".format(round(deltaTime,1), currentCandle.time[0:19], \
        formatTwoNumberWith("base:{} -- bid:{} -- ask:{}",bidc,askc), rsiLowMaker.RSI, position)
     # print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, currentCandle.bid.c,currentCandle.ask.c, rsiLowMaker.RSI)
 
@@ -253,7 +257,7 @@ while(True):
     elif(pos1 is not None):
         event,todo,benef, benefRatio = pos1.timeToClose(c, rsiLowMaker.isLow(), rsiLowMaker.isHigh())
         if(todo=='close'):
-            if(args.execute): pdb.set_trace()
+            #if(args.execute): pdb.set_trace()
             print( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, rsi, benefRatio))
             print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c)))
             if(args.execute):
