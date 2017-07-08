@@ -5,7 +5,7 @@ import v20
 from forwardInstrument import InstrumentWrapper, PathFinder
 from teeth import MovingQueue
 
-from myt_support import candleTime, summarize, downloads, PositionFactory, frequency, queueSecretSauce, TradeLoop
+from myt_support import candleTime, summarize, downloads, PositionFactory, frequency, queueSecretSauce, TradeLoop, trailSpecsFromStringParam
 import numpy as np
 from oscillators import OscillatorCalculation
 
@@ -28,7 +28,7 @@ parser.add_argument('--risk', nargs='?', type=float, default=1.0,
                     help="stop-loss, as a multiple of median-spread")
 parser.add_argument('--profit', nargs='?', type=float, default=3.0,
                     help="take-profit, as a multiple of median-spread")
-parser.add_argument('--trail', nargs='?', default='2:3')
+parser.add_argument('--trail', nargs='?', default='1:7,2:4,3:3,5:2,10:1')
 parser.add_argument('--rsi', nargs='?', default="14:31-71",
                     help="RSI pattern, e.g 14:35-75, means use 14 interval to compute RSI and consider oversold when < 35 and overbought>=75)")
 parser.add_argument('--after', nargs='?', type=int, default=0)
@@ -56,25 +56,10 @@ posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
 
 trailStart = 0
 trailDistance=0
+trailSpecs = []
 
 if(args.trail != 'none'):
-    mm = re.match(r"(\d+\.?\d*):(\d+\.?\d*)", args.trail)
-    if(mm is None):
-        raise ValueError("parameter --trail must be n:p, numerics where n<p")
-    else:
-        mm_n = float(mm.groups()[0])
-        mm_p = float(mm.groups()[1])
-        if(mm_n < mm_p):
-            trailStart = mm_n/mm_p
-            trailDistance=1.0/mm_p
-        else:
-            raise ValueError("parameter --trail must be n:p, numerics where n<p; and n>1.0 is very advisable")
-
-
-
-
-
-
+    trailSpecs = trailSpecsFromStringParam(args.trail, "parameter --trail")
 
 cfg = oandaconfig.Config()
 cfg.load("~/.v20.conf")
@@ -94,20 +79,28 @@ pipFactor = looper.pipFactor
 pos1 = None;pos1Id=None
 pos2 = None;pos2Id=None
 
+mspread = None
+mbid = None
+mask = None
+sdev=None
+askTrigger = None
+bidTrigger = None
 
-def RefreshPositions():
+
+def RefreshPositions(currentQuote = None):
     looper.refreshPositions(posMaker)
     xpos1=None;xpos2=None;xpos1Id=None;xpos2Id=None
     if(len(looper.positions)>0):
         xpos1 = looper.positions[0]
         xpos1Id = xpos1.tradeID
         if(trailDistance>0.0): xpos1.calibrateTrailingStopLossDesire(trailStart, trailDistance)
+        if(trailSpecs is not None): xpos1.calibrateTrailingStopLossDesireForSteppedSpecs(currentQuote, trailSpecs, mspread)
         if(len(looper.positions)>1):
             xpos2 = looper.positions[1]
             xpos2Id = xpos2.tradeID
     return (xpos1,xpos1Id,xpos2,xpos2Id)
 
-pos1,pos1Id,pos2,pos2Id = RefreshPositions()
+
 drag = args.drag if(pos1 is None) else 0
 slicing = args.slice.split("/")
 
@@ -117,31 +110,25 @@ kwargsLow =  { "count": (2*args.depth), "price": "BA", "granularity": slicing[1]
 
 candlesHigh = getSortedCandles(looper, kwargsHigh)
 candlesLow  = getSortedCandles(looper, kwargsLow)
-
-
-closings = 0
-# if(len(positions)==1):
-#     tradeIDs = (positions[0].long.tradeIDs if(positions[0].long.tradeIDs is not None)else positions[0].short.tradeIDs)
-#     pdb.set_trace()
-#     if(tradeIDs is not None and len(tradeIDs)>0):
-#         pos1 = posMaker.makeFromExistingTrade(candlesHigh[0], looper.account, tradeIDs[0])
-#         if(pos1 is None):
-#             raise RuntimeError("Unable to find position correctly (bug?)")
-#         else:
-#             pos1Id = tradeIDs[0]
-#             print "Found trade on the account..."
-
 queue = MovingQueue(args.depth)
 
+print "Digest the higher candle data..."
+for c in candlesHigh:
+    queue.add(c)
+    rsiHighMaker.add(c)
+    if(queue.full()):
+        mbid,mask, mspread, sdev, bidTrigger, askTrigger = queueSecretSauce(queue, args.trigger, args.sdf)
+
+
+for c in candlesLow:
+    rsiLowMaker.add(c)
+
+
+pos1,pos1Id,pos2,pos2Id = RefreshPositions(candlesLow[-1])
+
+closings = 0
+
 money = args.start
-mspread = None
-mbid = None
-mask = None
-sdev=None
-askTrigger = None
-bidTrigger = None
-
-
 withRandom = args.random
 
 
@@ -200,26 +187,19 @@ def PrintCurrentRead(deltaTime, currentCandle,rsi):
     askc = currentCandle.ask.c
 
     position = "(none)"
+    currentProfit = ""
     if(pos1 is not None):
         position = "[BUY]" if(pos1.forBUY) else "[SELL]"
+        currentProfit = pos1.quoteProfit(currentCandle)
 
-    print "{} -- {} -- {} (recent close) - RSI:{} -{}".format(round(deltaTime,1), currentCandle.time[0:19], \
-       formatTwoNumberWith("base:{} -- bid:{} -- ask:{}",bidc,askc), rsiLowMaker.RSI, position)
+    print "{} -- {} -- {} (recent close) - RSI:{} -{} ; {}".format(round(deltaTime,1), currentCandle.time[0:19], \
+       formatTwoNumberWith("base:{} -- bid:{} -- ask:{}",bidc,askc), rsiLowMaker.RSI, position, currentProfit)
     # print "{} -- {} -- base: {} --  bid: {} -- ask: {} (recent close) - RSI:{}".format(round(deltaTime,1), currentCandle.time[0:15], base, currentCandle.bid.c,currentCandle.ask.c, rsiLowMaker.RSI)
 
 
 
 
-print "Digest the higher candle data..."
-for c in candlesHigh:
-    queue.add(c)
-    rsiHighMaker.add(c)
-    if(queue.full()):
-        mbid,mask, mspread, sdev, bidTrigger, askTrigger = queueSecretSauce(queue, args.trigger, args.sdf)
 
-
-for c in candlesLow:
-    rsiLowMaker.add(c)
 
 
 
@@ -280,11 +260,14 @@ while(True):
             if(args.debug): pdb.set_trace()
             withRandom = 'none'
 
+        if(pos1 is not None):
+            pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs,mspread)
+            pos1.trailingStopNeedsReplacement = False
+
         if(pos1 is not None and pos1Id is None and args.execute):
             tryIt = posMaker.executeTrade(looper, pos1)
             if(tryIt is not None):
-                pos1   = tryIt[0]
-                pos1Id = tryIt[1]
+                pos1,pos1Id,pos2,pos2Id = RefreshPositions(c)
             else:
                 print("Position could not be executed because of market conditions or broker issues - or other exception")
                 tradeErrorCount+=1
@@ -293,6 +276,16 @@ while(True):
                     time.sleep(tradeErrorSleep)
 
     elif(pos1 is not None):
+        # import pdb; pdb.set_trace()
+        pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c, trailSpecs, mspread)
+        if(pos1.trailingStopNeedsReplacement):
+            print "Trailing Stop Aspirations have changed ..."
+            pos1.trailingStopNeedsReplacement = False
+            if(args.execute):
+                posMaker.executeTrailingStop(looper, pos1)
+                looper.refresh(True)
+                pos1,pos1Id,pos2,pos2Id = RefreshPositions(c)
+
         event,todo,benef, benefRatio = pos1.timeToClose(c, rsiLowMaker.isLow(), rsiLowMaker.isHigh())
         if(todo=='close'):
             #if(args.execute): pdb.set_trace()
@@ -300,12 +293,13 @@ while(True):
             print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c)))
             if(args.execute):
                 looper.refresh(True)
-                pos1,pos1Id,pos2,pos2Id = RefreshPositions()
+                pos1,pos1Id,pos2,pos2Id = RefreshPositions(c)
         elif(todo=='trailing-stop'):
             print("{} --Time to set trailing stop".format(c.time))
             if(args.execute):
                 posMaker.executeTrailingStop(looper,pos1)
-                pos1,pos1Id,pos2,pos2Id = RefreshPositions()
+                looper.refresh(True)
+                pos1,pos1Id,pos2,pos2Id = RefreshPositions(c)
         elif(todo=='trailing-update'):
             print "{} -- time to advance trailing stop".format(c.time)
             pos1.updateTrailingStop(c)
@@ -324,7 +318,7 @@ while(True):
         if(queue.full()):
             mbid,mask, mspread,sdev, bidTrigger, askTrigger = queueSecretSauce(queue)
         PrintCurrentStats()
-        pos1,pos1Id,pos2,pos2Id = RefreshPositions()
+        pos1,pos1Id,pos2,pos2Id = RefreshPositions(c)
         if(pos1 is not None):
             print pos1
             print "Latest bid:{}, ask:{}".format(c.bid.o, c.ask.o)

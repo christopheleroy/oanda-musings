@@ -3,9 +3,30 @@ import time
 import dateutil.parser
 import numpy as np
 from forwardInstrument import Opportunity
-import pdb
+import pdb, re
 
 __dtconv = {} # a hash to remember conversion of time-strings to time-integers, so that we don't convert them twice (or over and over again)
+
+
+
+def trailSpecsFromStringParam(paramValue, msgHead="trailing-stop-specs"):
+    trailSpecs = []
+    for spec in paramValue.split(","):
+        mm = re.match(r"(\d+\.?\d*):(\d+\.?\d*)", spec)
+        if(mm is None):
+            raise ValueError("{} must be n:p, numerics, or n:p,m:q,... - {} is incompatible".format(msgHead,spec))
+        else:
+            mm_n = float(mm.groups()[0])
+            mm_p = float(mm.groups()[1])
+            trailSpecs.append( (mm_n, mm_p) )
+    trailSpecs.sort(lambda x,y: cmp(x[0],y[0]))
+    if(len(trailSpecs)>1):
+        if(trailSpecs[0][0] == trailSpecs[1][0]):
+            raise ValueError("{} cannot mention the same trigger level more than once".format(msgHead))
+        for i in range(len(trailSpecs)):
+            if(i>0 and trailSpecs[i][1]>= trailSpecs[i-1][1]):
+                raise ValueError("{} cannot specify stop-loss distance that are decreasing when trigger level increase: {},{} vs {},{}".format(msgHead, trailSpecs[i-1][0],trailSpecs[i-1][1], trailSpecs[i][0],trailSpecs[i][1]))
+    return trailSpecs
 
 def candleTime(c):
     """ translate the time-strings from oanda service candle-times (start time or end time of a candle) to time-integers.
@@ -85,6 +106,8 @@ def queueSecretSauce(queue, trigger=3,sdf=0.3):
     askTrigger = mask + trigger*mspread - sdf*sdev
 
     return mbid,mask, mspread, sdev, bidTrigger, askTrigger
+
+
 
 
 
@@ -182,7 +205,7 @@ class PositionFactory(object):
         self.current = float(current)
         self.extreme = float(extreme)
 
-    def make(self,forBUY, quote,size,saveLoss, takeProfit, trailingTriggerPrice, trailingDistance):
+    def make(self,forBUY, quote,size,saveLoss, takeProfit, trailingTriggerPrice=None, trailingDistance=None):
         pos= Position(forBUY,quote,size,saveLoss,takeProfit, (self.current, self.extreme))
         pos.trailingStopTriggerPrice = trailingTriggerPrice
         pos.trailingStopDesiredDistance = trailingDistance
@@ -231,18 +254,26 @@ class PositionFactory(object):
     def executeTrailingStop(self, looper, pos, wait=1200, noMore=5):
         """Bring an executed position (with tradeID) to be set with the expected trailing-stop parameters"""
         mtsd = looper.instrument.minimumTrailingStopDistance
-        if(pos.trailingStopLossOrderId is None and pos.tradeID is not None):
+        if(pos.tradeID is not None):
             distance = pos.trailingStopDesiredDistance
             if(distance<mtsd):
                 distance = mtsd
+            # price = (pos.trailingStopValue+distance*(1 if(pos.forBUY) else -1)) if(pos.trailingStopValue is not None) else pos.trailingStopTriggerPrice
             distance = self.nicepadding(distance, looper.displayPrecision)
-            price    = self.nicepadding(pos.trailingStopTriggerPrice, looper.displayPrecision)
-            tslargs = {"price": price, "tradeID": pos.tradeID, "distance":  distance }
+            # price    = self.nicepadding(price, looper.displayPrecision)
+            tslargs = {"tradeID": str(pos.tradeID), "distance":  distance }
             print tslargs
-            respTSL = looper.api.order.trailing_stop_loss(looper.accountId,  **tslargs)
+            respTSL = None
+            if(pos.trailingStopLossOrderId is None):
+                respTSL = looper.api.order.trailing_stop_loss(looper.accountId,  **tslargs)
+            else:
+                print "replace order {}".format(pos.trailingStopLossOrderId)
+                respTSL = looper.api.order.trailing_stop_loss_replace(looper.accountId,  pos.trailingStopLossOrderId, **tslargs)
             print "status code:{}\nbody:{}".format(respTSL.status, respTSL.body)
-        elif(pos.trailingStopLossOrderId is not None):
-            print "Trailing stop already set - not modifying in this version..."
+            if(str(respTSL.status)=='201'):
+                time.sleep(float(wait)/1000.0)
+        else:
+            raise RuntimeError("cannot call executeTrailingStop on a position that has not been entered/traded")
 
 
 
@@ -295,6 +326,8 @@ class PositionFactory(object):
                         return pos, None
 
             newPos = self.makeFromExistingTrade(pos.entryQuote, looper.account, newTrades[0].id)
+            # if(pos.trailingSpecs is not None):
+            #     newPos.calibrateTrailingStopLossDesireForSteppedSpecs(pos.traillingSpecs,
             return newPos, newTrades[0].id
         return None
 
@@ -314,8 +347,9 @@ class Position(object):
         self.size = size
         self.saveLoss = saveLoss
         self.takeProfit = takeProfit
-        self.trailingStopTriggerPrice = None
-        self.trailingStopDesiredDistance = 0
+        self.trailingStopTriggerPrice = None    # price where the trailingStop will be starting
+        self.trailingStopDesiredDistance = 0    # distance that is desired for the trailing stop - as soon as it is triggered
+        self.medianSpread = None                # medianSpread is record when we calibrate - it may be used if the position is in trailing-stop step mode.
 
         if(self.forBUY):
             self.expLoss = self.entryQuote.ask.o - self.saveLoss
@@ -327,15 +361,17 @@ class Position(object):
         self.fracCurrent = fracTuple[0]
         self.fracExtreme = fracTuple[1]
         self.fracSum     = fracTuple[0]+fracTuple[1]
-        self.tradeID = None
-        self.saveLossOrderId = None
-        self.takeProfitOrderId = None
-        self.trailingStopLossOrderId = None
-        self.trailingStopValue       = None
-        self.trailingStopDistance    = None
-
+        self.tradeID = None                  # tradeID for the trade for this position (once executed)
+        self.saveLossOrderId = None          # stop loss order id for the trade for this position  (once executed)
+        self.takeProfitOrderId = None        # take profit order if for the trade for this position (once executed)
+        self.trailingStopLossOrderId = None   # current orderId we are tracking with the account for this position, if engaged / triggered
+        self.trailingStopValue       = None   # if trailing stop is engaged, this is the trailingStop value for it
+        self.trailingStopDistance    = None   # if the trailing stop  is engaged, this is the trialing stop distance
+        self.trailSpecs              = None   # if we are i "traiing stop step mode", these are the steps, an array of 2-uples. t[0] = price triggering the level, t[1] = level (distance) - these are expressed as factors of the median spread. (t[0] is above(buy)/below(sell) the trade price)
+        self.trailingStopNeedsReplacement = False # set to true whenever we realize the trailing stop conditions have changed
 
     def calibrateTrailingStopLossDesire(self, trailStart, trailDistance):
+        if(self.trailSpecs is not None): raise ValueError("cannot call calibrateTrailingStopLossDesire when position is in step-mode")
         if(self.forBUY):
             profit = self.takeProfit - self.entryQuote.ask.o
             self.trailingStopTriggerPrice = self.entryQuote.ask.o + trailStart*profit
@@ -346,6 +382,64 @@ class Position(object):
             self.trailingStopDesiredDistance = trailDistance*profit
 
 
+    def calibrateTrailingStopLossDesireForSteppedSpecs(self, currentQuote, trailSpecs, mspread):
+        """ calibrate the Position trailing stop details for the new current quote.
+            TrailSpecs and mspread can be passed as None if you just want to use the latest calibrated values for trailSpecs and mspread
+            currentquote can be passed as None to calibrate the position at the very beginning."""
+
+        if(currentQuote is None and (trailSpecs is None or mspread is None)):
+            raise ValueError("need either curentQuote or trailSpecs + mspread")
+
+        if(mspread is None):
+            mspread = self.medianSpread
+        else:
+            self.medianSpread = mspread
+
+        plusMinus = 1.0 if(self.forBUY) else -1.0
+
+        if(currentQuote is None):
+            self.trailingStopDesiredDistance = mspread*trailSpecs[0][1]
+            self.trailingStopTriggerPrice    = mspread*trailSpecs[0][0]* plusMinus + (self.entryPrice())
+            self.trailSpecs               = trailSpecs
+            return
+
+        if(trailSpecs is None): trailSpecs = self.trailSpecs
+        currentDistance = self.trailingStopDistance
+        unitProfit = self.quoteProfit(currentQuote, True)
+        if(unitProfit>0.0):
+            okSpec = None
+            for spec in trailSpecs:
+                if(unitProfit>mspread*spec[0] and (currentDistance is None or mspread*spec[1]<currentDistance)):
+                    okSpec = spec
+                elif(okSpec is not None):
+                    break
+
+            if(okSpec is None): return
+
+            newDesiredDistance = round(mspread*okSpec[1],7)
+            if(newDesiredDistance != self.trailingStopDesiredDistance):
+                print "new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance)
+                self.trailingStopDesiredDistance = newDesiredDistance
+                self.trailingStopNeedsReplacement = True
+            if(self.trailingStopDistance is not None):
+                # then trailing stop is already engage, note a needed replacement only if trailingStopDistance is different than new distance, the moving stop value is taken care by the broker
+                self.trailingStopNeedsReplacement = (newDesiredDistance != round(self.trailingStopDistance,7))
+            return
+
+
+    def entryPrice(self):
+        """ price trade when trade was entered"""
+        return self.entryQuote.ask.o if(self.forBUY) else self.entryQuote.bid.o
+
+    def quoteProfit(self, currentQuote, normalized=True):
+        p = self.relevantPrice(currentQuote)
+        profit = (p - self.entryPrice()) *(1.0 if(self.forBUY) else -1.0)
+        if(not normalized):
+            profit = profit * self.size
+        return profit
+
+
+
     def relevantPrice(self, currentQuote):
         if(self.forBUY):
             # if we close, we sell, we look at the bid price
@@ -353,6 +447,7 @@ class Position(object):
         else:
             # if we close, we buy, we look at the ask price
             return (self.fracCurrent*currentQuote.ask.o + self.fracExtreme*currentQuote.ask.h)/self.fracSum
+
 
     def __str__(self):
 
@@ -374,6 +469,7 @@ class Position(object):
         return self.tradeID is not None
 
     def updateTrailingStop(self, currentQuote):
+
         avgPrice = self.relevantPrice(currentQuote)
 
         if(self.forBUY):
@@ -385,7 +481,10 @@ class Position(object):
                 self.trailingStopValue = avgPrice+self.trailingStopDistance
                 print "updated trailing stop price to {}".format(self.trailingStopValue)
 
+
+
     def setTrailingStop(self,currentQuote):
+        """ set original trailing stop conditions, if trail stop is satisfied - call only once!"""
         avgPrice = self.relevantPrice(currentQuote)
 
         if(self.tradeID is not None):
