@@ -33,7 +33,7 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
         backtracking.append(item)
     return backtracking
 
-    
+
 
 
 
@@ -402,19 +402,20 @@ class Position(object):
         self.trailSpecs              = None   # if we are i "traiing stop step mode", these are the steps, an array of 2-uples. t[0] = price triggering the level, t[1] = level (distance) - these are expressed as factors of the median spread. (t[0] is above(buy)/below(sell) the trade price)
         self.trailingStopNeedsReplacement = False # set to true whenever we realize the trailing stop conditions have changed
 
-    def calibrateTrailingStopLossDesire(self, trailStart, trailDistance):
-        if(self.trailSpecs is not None): raise ValueError("cannot call calibrateTrailingStopLossDesire when position is in step-mode")
-        if(self.forBUY):
-            profit = self.takeProfit - self.entryQuote.ask.o
-            self.trailingStopTriggerPrice = self.entryQuote.ask.o + trailStart*profit
-            self.trailingStopDesiredDistance =  trailDistance*profit
-        else:
-            profit = self.entryQuote.bid.o - self.takeProfit
-            self.trailingStopTriggerPrice = self.entryQuote.bid.o - trailStart*profit
-            self.trailingStopDesiredDistance = trailDistance*profit
+
+    # def calibrateTrailingStopLossDesire(self, trailStart, trailDistance):
+    #     if(self.trailSpecs is not None): raise ValueError("cannot call calibrateTrailingStopLossDesire when position is in step-mode")
+    #     if(self.forBUY):
+    #         profit = self.takeProfit - self.entryQuote.ask.o
+    #         self.trailingStopTriggerPrice = self.entryQuote.ask.o + trailStart*profit
+    #         self.trailingStopDesiredDistance =  trailDistance*profit
+    #     else:
+    #         profit = self.entryQuote.bid.o - self.takeProfit
+    #         self.trailingStopTriggerPrice = self.entryQuote.bid.o - trailStart*profit
+    #         self.trailingStopDesiredDistance = trailDistance*profit
 
 
-    def calibrateTrailingStopLossDesireForSteppedSpecs(self, currentQuote, trailSpecs, mspread):
+    def calibrateTrailingStopLossDesireForSteppedSpecs(self, currentQuote, trailSpecs, mspread, minimumTrailingStopDistance):
         """ calibrate the Position trailing stop details for the new current quote.
             TrailSpecs and mspread can be passed as None if you just want to use the latest calibrated values for trailSpecs and mspread
             currentquote can be passed as None to calibrate the position at the very beginning."""
@@ -426,6 +427,8 @@ class Position(object):
             mspread = self.medianSpread
         else:
             self.medianSpread = mspread
+
+        self.minimumTrailingStopDistance = minimumTrailingStopDistance
 
         plusMinus = 1.0 if(self.forBUY) else -1.0
 
@@ -449,6 +452,8 @@ class Position(object):
             if(okSpec is None): return
 
             newDesiredDistance = round(mspread*okSpec[1],7)
+            if(newDesiredDistance<minimumTrailingStopDistance): newDesiredDistance = minimumTrailingStopDistance
+
             if(newDesiredDistance != self.trailingStopDesiredDistance):
                 print "new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance)
                 self.trailingStopDesiredDistance = newDesiredDistance
@@ -472,12 +477,16 @@ class Position(object):
 
 
 
-    def relevantPrice(self, currentQuote):
+    def relevantPrice(self, currentQuote, highOnly=False):
+        """return relevantPrice to estimate for a position, given current candle.
+           highOnly: to find the relevant price that has the highest impact on profit / stop loss"""
         if(self.forBUY):
             # if we close, we sell, we look at the bid price
+            if(highOnly): return currentQuote.bid.h
             return (self.fracCurrent * currentQuote.bid.o + self.fracExtreme*currentQuote.bid.l)/self.fracSum
         else:
             # if we close, we buy, we look at the ask price
+            if(highOnly): return currentQuote.ask.l
             return (self.fracCurrent*currentQuote.ask.o + self.fracExtreme*currentQuote.ask.h)/self.fracSum
 
 
@@ -514,6 +523,22 @@ class Position(object):
                 print "updated trailing stop price to {}".format(self.trailingStopValue)
 
 
+    def expectedTrailingStopValue(self, currentQuote):
+        """for current quote, and current trailing-stop conditions, what should be the trailing-stop value? """
+        bestPrice = self.relevantPrice(currentQuote, True)
+        if(self.forBUY):
+            if(self.trailingStopDistance>0.0 and
+                ( (self.trailingStopValue is None and bestPrice >= self.trailingStopTriggerPrice) or
+                  (self.trailingStopValue is not None and bestPrice > (self.trailingStopValue-self.trailingStopDistance)) )):
+                return bestPrice - self.trailingStopDistance
+        else:
+            if(self.trailingStopDistance>0.0 and
+                 ( (self.trailingStopValue is None and bestPrice <= self.trailingStopTriggerPrice) or
+                   (self.trailingStopValue is not None and bestPrice < (self.trailingStopValue +self.trailingStopDistance)) )):
+                return bestPrice + self.trailingStopDistance
+
+        return self.trailingStopValue
+
 
     def setTrailingStop(self,currentQuote):
         """ set original trailing stop conditions, if trail stop is satisfied - call only once!"""
@@ -526,49 +551,70 @@ class Position(object):
 
         if(self.forBUY):
             if(self.trailingStopDesiredDistance>0.0 and avgPrice >= self.trailingStopTriggerPrice and self.trailingStopValue is None):
-                self.trailingStopValue = avgPrice
+                self.trailingStopValue = avgPrice - self.trailingStopDistance
                 self.trailingStopDistance = self.trailingStopDesiredDistance
         else:
             if(self.trailingStopDesiredDistance>0.0 and avgPrice <= self.trailingStopTriggerPrice and self.trailingStopValue is None):
-                self.trailingStopValue  = avgPrice
+                self.trailingStopValue  = avgPrice + self.trailingStopDesiredDistance
                 self.trailingStopDistance = self.trailingStopDesiredDistance
 
 
 
 
     def timeToClose(self, currentQuote, rsiLow, rsiHigh):
+        """is it time to close (take-profit, save-loss, stop-loss triggered), or update stop-loss-value?"""
         avgPrice = self.relevantPrice(currentQuote)
+        newStopValue = self.expectedTrailingStopValue(currentQuote)
+        benefRatio = 0.0
+        lossRatio = 0.0
+        holdRatio = 0.0
+
+        if(newStopValue is not None and self.trailingStopValue is not None):
+            if((self.forBUY and newStopValue < self.trailingStopValue) or
+               (not self.forBUY and newStopValue > self.trailingStopValue)):
+               print "WARNING: stop value calculations are retrograde!"
+               import pdb; pdb.set_trace()
+               newStopValue2 = self.expectedTrailingStopValue(currentQuote)
+
+        # import pdb; pdb.set_trace()
 
         if(self.forBUY):
             delta = self.entryQuote.ask.o - avgPrice
+            benefRatio = -100*delta/self.expGain
+            lossRatio  = 100*delta/self.expLoss
+            holdRatio  = benefRatio if(delta<0)else lossRatio
 
-            if(avgPrice < self.saveLoss and not rsiHigh):
+            if(avgPrice < self.saveLoss ):
                 return ('save-loss', 'close', -delta, 100*delta / self.expLoss)
-            elif(avgPrice > self.takeProfit and not rsiLow):
+            elif(avgPrice > self.takeProfit):
                 expGain = self.takeProfit - self.entryQuote.ask.o
-                return ('take-profit', 'close', -delta, -100*delta/ self.expGain)
-            elif(self.trailingStopDesiredDistance>0.0 and avgPrice >= self.trailingStopTriggerPrice and self.trailingStopValue is None):
-                return ('trailing-stop', 'trailing-stop', 0.0, 0.0)
-            elif(self.trailingStopValue is not None and self.trailingStopValue+self.trailingStopDistance<avgPrice):
-                return ('trailing-stop', 'trailing-update', 0.0,0.0)
+                return ('take-profit', 'close', -delta, -benefRatio)
+            elif(self.trailingStopValue is None and newStopValue is not None):
+                return ('trailing-stop', 'trailing-stop', 0.0, benefRatio)
+            elif(self.trailingStopValue is not None and newStopValue is not None and newStopValue != self.trailingStopValue):
+                return ('trailing-stop', 'trailing-update', 0.0,benefRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue>avgPrice):
                 delta = self.entryQuote.ask.o - self.trailingStopValue
-                return ('trailing-stop', 'close', -delta, -100*delta/self.expGain)
+                return ('trailing-stop', 'close', -delta, benefRatio)
 
         else:
 
             delta = self.entryQuote.bid.o - avgPrice
-            if(avgPrice > self.saveLoss and not rsiLow):
+            benefRatio = 100*delta/self.expGain
+            lossRatio  = -100*delta/self.expLoss
+            holdRatio  = benefRatio if(delta>0)else lossRatio
+
+            if(avgPrice > self.saveLoss ):
                 expLoss = self.saveLoss - self.entryQuote.ask.o
-                return ('save-loss', 'close', delta, 100*delta / self.expLoss)
-            elif(avgPrice < self.takeProfit and not rsiHigh):
-                return ('take-profit', 'close', delta, 100 * delta / self.expGain)
+                return ('save-loss', 'close', delta, lossRatio)
+            elif(avgPrice < self.takeProfit ):
+                return ('take-profit', 'close', delta, benefRatio)
             elif(self.trailingStopDesiredDistance>0.0 and avgPrice <= self.trailingStopTriggerPrice and self.trailingStopValue is None):
-                return ('trailing-stop', 'trailing-stop', 0.0, 0.0)
+                return ('trailing-stop', 'trailing-stop', 0.0, benefRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue-self.trailingStopDistance>avgPrice):
-                return ('trailing-stop', 'trailing-update',0.0,0.0)
+                return ('trailing-stop', 'trailing-update',0.0,benefRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue < avgPrice):
                 delta = self.entryQuote.bid.o - self.trailingStopValue
-                return ('trailing-stop', 'close', delta, 100*delta/self.expGain)
+                return ('trailing-stop', 'close', delta, benefRatio)
 
-        return ('hold', 'hold', 0.0, 0.0)
+        return ('hold', 'hold', 0.0, holdRatio)
