@@ -285,7 +285,7 @@ while(True):
                 posMaker.executeTrailingStop(looper, pos1)
                 looper.refresh(True)
                 pos1,pos1Id,pos2,pos2Id = RefreshPositions(c)
-
+        ### CRASH when RefreshPosition has emptied pos1
         event,todo,benef, benefRatio = pos1.timeToClose(c, rsiLowMaker.isLow(), rsiLowMaker.isHigh())
         if(todo=='close'):
             #if(args.execute): pdb.set_trace()

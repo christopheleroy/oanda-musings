@@ -8,6 +8,34 @@ import pdb, re
 __dtconv = {} # a hash to remember conversion of time-strings to time-integers, so that we don't convert them twice (or over and over again)
 
 
+def getSortedCandles(loopr, kwargs):
+    candles = loopr.api.instrument.candles(loopr.instrumentName, **kwargs).get('candles',200)
+    candles.sort(lambda a,b: cmp(a.time, b.time))
+    return candles
+
+
+def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
+    highKW = { "count": highCount, "price":"BA", "granularity":highSlice}
+    lowKW  = { "price":"BA", "granularity":lowSlice}
+
+    print highKW
+    highCandles = getSortedCandles(loopr, highKW)
+    backtracking = []
+    for i in range(len(highCandles)):
+        a = highCandles[i]
+        lowKW["fromTime"] = a.time
+        if(i+1<len(highCandles)):
+            b = highCandles[i+1]
+            lowKW["toTime"] = b.time
+        print lowKW
+        lowCandles = getSortedCandles(loopr, lowKW)
+        item = (a, lowCandles)
+        backtracking.append(item)
+    return backtracking
+
+    
+
+
 
 def trailSpecsFromStringParam(paramValue, msgHead="trailing-stop-specs"):
     trailSpecs = []
@@ -117,7 +145,9 @@ class TradeLoop(object):
         self.accountId = accountId
         self.instrumentName = instrumentName
         self.freshFrequency_ms = freshFrequency_ms
-        self.accountPositions = []
+        self.positions = []
+        self.simulation = False
+        self.simulatedPositions = []
 
 
     def initialize(self, posFactory=None):
@@ -179,6 +209,8 @@ class TradeLoop(object):
         return filter(lambda p: p.instrument == me, self.account.positions)
 
     def refresh(self, force=False, raiseX=True):
+        if(self.simulation): return
+
         if(force or time.time() - self.accountTime > self.freshFrequency_ms/1000.0):
             try:
                 whenT = time.time()
