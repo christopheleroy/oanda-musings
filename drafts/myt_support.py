@@ -388,7 +388,7 @@ class Position(object):
             self.expGain = self.takeProfit - self.entryQuote.ask.o
         else:
             self.expLoss = self.saveLoss - self.entryQuote.bid. o
-            self.expGain = self.entryQuote.bid.o - self.saveLoss
+            self.expGain = self.entryQuote.bid.o - self.takeProfit
 
         self.fracCurrent = fracTuple[0]
         self.fracExtreme = fracTuple[1]
@@ -576,13 +576,13 @@ class Position(object):
                import pdb; pdb.set_trace()
                newStopValue2 = self.expectedTrailingStopValue(currentQuote)
 
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
 
         if(self.forBUY):
             delta = self.entryQuote.ask.o - avgPrice
             benefRatio = -100*delta/self.expGain
             lossRatio  = 100*delta/self.expLoss
-            holdRatio  = benefRatio if(delta<0)else lossRatio
+            holdRatio  = -benefRatio if(delta>0)else lossRatio
 
             if(avgPrice < self.saveLoss ):
                 return ('save-loss', 'close', -delta, 100*delta / self.expLoss)
