@@ -84,6 +84,7 @@ for d in dataset:
         event,todo,benef,benefRatio,rsi,pos1 = robot.decision(looper, posMaker)
         if(not args.execute):
             if(todo == "take-position"):
+                pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                 looper.positions.append(pos1)
             elif(todo=='close'):
                 print( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, rsi, benefRatio))
@@ -92,12 +93,28 @@ for d in dataset:
                 looper.positions = []
                 print "Money: {}".format(money)
             elif(todo=='trailing-stop'):
-                print("{} --Time to set trailing stop".format(c.time))
+                print("{} --Time to set trailing stop - {}".format(c.time,pos1.relevantPrice(c)))
                 pos1.setTrailingStop(c)
+                print pos1
+            elif(todo=='trailing-progress'):
+                print "{} -- time to advance trailing stop value - {}".format(c.time, pos1.relevantPrice(c))
+                pos1.updateTrailingStopValue(c)
+                print pos1
             elif(todo=='trailing-update'):
-                print "{} -- time to advance trailing stop".format(c.time)
-                pos1.updateTrailingStop(c)
+                print "{} -- time to (re)set trailing stop - {} - for distance {}".format(c.time, pos1.relevantPrice(c), pos1.trailingStopDesiredDistance)
+                pos1.trailingStopDistance = pos1.trailingStopDesiredDistance
+                pos1.trailingStopNeedsReplacement = False
+                print pos1
             elif(todo=='hold' or todo=="wait"):
+                rvp = "n/a"
+                if(pos1 is not None):
+                    pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
+                    rvp = pos1.relevantPrice(c)
+                print "{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1)
                 continue
             else:
                 print "{} -- not sure what to do with {}".format(c.time, todo)
+
+
+
+print "Money: {}".format(money)
