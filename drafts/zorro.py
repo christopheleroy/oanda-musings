@@ -1,6 +1,6 @@
 
 
-import argparse, re, pdb, time
+import argparse, re, pdb, time, logging
 import oandaconfig
 import v20
 
@@ -43,14 +43,19 @@ parser.add_argument('--sdf', default=0.3, type=float,
 parser.add_argument('--bf', default=20, type=float,
                     help="frequency of displaying the 'banner', ever n times the tick is displayed")
 parser.add_argument('--trace', action='store_true')
-parser.add_argument('--dir', type=str, help='cande cache directory')
+parser.add_argument('--dir', type=str, help='candle cache directory')
 parser.add_argument('--since', type=str)
 parser.add_argument('--till', type=str)
+parser.add_argument('--loglevel', type=int)
+parser.add_argument('--instruments', action='store_true')
 # parser.add_argument('--bt', action='store_true',
 #                     help="turns back-track on")
 
 # parser.add_argument('--level', nargs='?', type=int, default=4)
 args = parser.parse_args()
+if(args.loglevel is not None):
+    logging.basicConfig(level=args.loglevel)
+
 money = args.start
 
 slices = args.slice.split("/")
@@ -61,7 +66,14 @@ cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
 looper = TradeLoop(api, cfg.active_account, args.select, 200*1000.0)
-looper.initialize(posMaker, {"name": args.select, "displayPrecision":5, "pipLocation":4, "minimumTrailingStopDistance": 0.0005})
+if(args.instruments):
+    from candlecache import findInstrument
+    instDict  = findInstrument(args.dir, args.select)
+    if(instDict is None):
+        raise ValueError("instrument is not found in the cache...")
+    looper.initialize(posMaker, instDict)
+else:
+    looper.initialize(posMaker)
 
 
 robot = Alfred.TradeStrategy(args.trigger, args.profit, args.risk,
@@ -102,39 +114,39 @@ for d in dataset:
                 pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                 looper.positions.append(pos1)
             elif(todo=='close'):
-                print( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, rsi, benefRatio))
+                logging.warning( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, round(rsi,2), round(benefRatio,2)))
                 # print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c))
                 tag = ("BUY" if(pos1.forBUY)else "SELL") + " - " + event + " - " + ("gain" if(benef>0)else("loss"))
                 counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
 
                 money += benef*pos1.size
                 looper.positions = []
-                print "Money: {}".format(money)
+                logging.warning("Money: {}".format(money))
             elif(todo=='trailing-stop'):
-                print("{} --Time to set trailing stop - {}".format(c.time,pos1.relevantPrice(c)))
+                logging.info("{} --Time to set trailing stop - {}".format(c.time,pos1.relevantPrice(c)))
                 pos1.setTrailingStop(c)
-                print pos1
+                logging.debug( pos1 )
             elif(todo=='trailing-progress'):
-                print "{} -- time to advance trailing stop value - {}".format(c.time, pos1.relevantPrice(c))
+                logging.info("{} -- time to advance trailing stop value - {}".format(c.time, pos1.relevantPrice(c)))
                 pos1.updateTrailingStopValue(c)
-                print pos1
+                logging.debug( pos1 )
             elif(todo=='trailing-update'):
-                print "{} -- time to (re)set trailing stop - {} - for distance {}".format(c.time, pos1.relevantPrice(c), pos1.trailingStopDesiredDistance)
+                logging.info("{} -- time to (re)set trailing stop - {} - for distance {}".format(c.time, pos1.relevantPrice(c), pos1.trailingStopDesiredDistance))
                 pos1.trailingStopDistance = pos1.trailingStopDesiredDistance
                 pos1.trailingStopNeedsReplacement = False
-                print pos1
+                logging.debug( pos1 )
             elif(todo=='hold' or todo=="wait"):
                 rvp = "n/a"
                 if(pos1 is not None):
                     pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                     rvp = pos1.relevantPrice(c)
-                if(args.trace): print "{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1)
+                if(args.trace): args.debug("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
                 continue
             else:
-                print "{} -- not sure what to do with {}".format(c.time, todo)
+                logging.critical( "{} -- not sure what to do with {}".format(c.time, todo))
 
 
 
-print "Money: {}".format(money)
-print "First time: {}  -- Last time: {}".format(firstTime,lastTime)
-print counts
+logging.warning( "Money: {}".format(money) )
+logging.info("First time: {}  -- Last time: {}".format(firstTime,lastTime))
+logging.info(str(counts))

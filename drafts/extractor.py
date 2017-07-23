@@ -16,6 +16,8 @@ parser.add_argument('--slice', nargs='?', default="M1")
 
 parser.add_argument('--year', nargs='?', type=int, default = None)
 parser.add_argument('--month', nargs='?', type=int, default = None)
+parser.add_argument('--instruments', action='store_true')
+
 args = parser.parse_args()
 
 
@@ -27,6 +29,18 @@ import datetime
 today = datetime.date.today()
 if(args.year is None): args.year = today.year
 if(args.month is None): args.month = today.month
+
+def collectInstruments(dir):
+    import json
+    instResp    = api.account.instruments(cfg.active_account)
+    instruments = instResp.get('instruments','200')
+    stuff = map(lambda i: {"name": i.name, "pipLocation": i.pipLocation,
+                           "displayPrecision": i.displayPrecision,
+                           "minimumTrailingStopDistance": i.minimumTrailingStopDistance}, instruments)
+
+    with open((dir + "/instruments.json"), 'wb') as jsonf:
+        json.dump(stuff, jsonf)
+
 
 def collectForMonth(pair, year, month, dir, granularity="S5"):
     kwargs = {"granularity":granularity, "price":"MBA"}
@@ -85,4 +99,7 @@ def collectForMonth(pair, year, month, dir, granularity="S5"):
             csvwriter.writerow(r)
 
 
-collectForMonth(args.select, args.year, args.month, args.dir, args.slice)
+if(not args.instruments):
+    collectForMonth(args.select, args.year, args.month, args.dir, args.slice)
+else:
+    collectInstruments(args.dir)

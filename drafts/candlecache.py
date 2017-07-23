@@ -12,6 +12,15 @@ def makeTILL(till):
     return till
 
 
+def findInstrument(dir, select):
+    import json
+    with open(dir + "/instruments.json", 'rb') as jsonf:
+        these = json.load(jsonf)
+        for i in these:
+            if(i["name"] == select): return i
+
+    return None
+
 class AccountCache(object):
     def __init__(self):
         self.positions = []
@@ -38,7 +47,6 @@ class FileCacheIterator(object):
         import os
         suffix =  ".{}.{}.csv".format(pair, self.slice)
         self.files = [ dir + "/" + f for f in os.listdir(dir) if (f.endswith(suffix) and cmp(sinceMonth, f)<0 and cmp(f[:7],tillMonth)<=0) ]
-        print self.files
         self.fileIter = iter(self.files)
 
     def __iter__(self):
