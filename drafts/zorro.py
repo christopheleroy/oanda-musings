@@ -5,7 +5,7 @@ import oandaconfig
 import v20
 
 import Alfred
-from myt_support import TradeLoop, trailSpecsFromStringParam, getSortedCandles, getBacktrackingCandles, PositionFactory
+from myt_support import TradeLoop, trailSpecsFromStringParam, getSortedCandles, getBacktrackingCandles, PositionFactory, getCachedBacktrackingCandles
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--size', nargs='?', type=float, default=1000.0,
@@ -42,6 +42,10 @@ parser.add_argument('--sdf', default=0.3, type=float,
                     help="the weight of the standard deviation of bid around median bid in calculating how much we differ from median bid or median ask, when computing the trigger point (default 0.3)")
 parser.add_argument('--bf', default=20, type=float,
                     help="frequency of displaying the 'banner', ever n times the tick is displayed")
+parser.add_argument('--trace', action='store_true')
+parser.add_argument('--dir', type=str, help='cande cache directory')
+parser.add_argument('--since', type=str)
+parser.add_argument('--till', type=str)
 # parser.add_argument('--bt', action='store_true',
 #                     help="turns back-track on")
 
@@ -57,7 +61,7 @@ cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
 looper = TradeLoop(api, cfg.active_account, args.select, 200*1000.0)
-looper.initialize(posMaker)
+looper.initialize(posMaker, {"name": args.select, "displayPrecision":5, "pipLocation":4, "minimumTrailingStopDistance": 0.0005})
 
 
 robot = Alfred.TradeStrategy(args.trigger, args.profit, args.risk,
@@ -71,14 +75,25 @@ looper.simulation = robot.simulation
 
 robot.initialize()
 
+counts = {}
 
-dataset =  getBacktrackingCandles(looper, args.depth*args.drag, slices[0], slices[1])
 
+dataset =  None
+if(args.dir is None):
+    dataset = getBacktrackingCandles(looper, args.depth*args.drag, slices[0], slices[1])
+else:
+    dataset = getCachedBacktrackingCandles(looper, args.dir,slices[0], slices[1], args.since, args.till)
+
+
+
+firstTime = dataset[0][1][0].time
+lastTime = firstTime
 for d in dataset:
     highCandle = d[0]
     lowCandles = d[1]
     robot.digestHighCandle(highCandle)
     for c in lowCandles:
+        lastTime = c.time
         robot.digestLowCandle(c)
         #print(c)
         event,todo,benef,benefRatio,rsi,pos1 = robot.decision(looper, posMaker)
@@ -89,6 +104,9 @@ for d in dataset:
             elif(todo=='close'):
                 print( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, rsi, benefRatio))
                 # print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c))
+                tag = ("BUY" if(pos1.forBUY)else "SELL") + " - " + event + " - " + ("gain" if(benef>0)else("loss"))
+                counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
+
                 money += benef*pos1.size
                 looper.positions = []
                 print "Money: {}".format(money)
@@ -110,7 +128,7 @@ for d in dataset:
                 if(pos1 is not None):
                     pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                     rvp = pos1.relevantPrice(c)
-                print "{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1)
+                if(args.trace): print "{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1)
                 continue
             else:
                 print "{} -- not sure what to do with {}".format(c.time, todo)
@@ -118,3 +136,5 @@ for d in dataset:
 
 
 print "Money: {}".format(money)
+print "First time: {}  -- Last time: {}".format(firstTime,lastTime)
+print counts

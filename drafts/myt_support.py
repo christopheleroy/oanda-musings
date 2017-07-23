@@ -9,7 +9,9 @@ __dtconv = {} # a hash to remember conversion of time-strings to time-integers, 
 
 
 def getSortedCandles(loopr, kwargs):
-    candles = loopr.api.instrument.candles(loopr.instrumentName, **kwargs).get('candles',200)
+    resp = loopr.api.instrument.candles(loopr.instrumentName, **kwargs)
+    if(str(resp.status) != '200'): print resp.body
+    candles = resp.get('candles',200)
     candles.sort(lambda a,b: cmp(a.time, b.time))
     return candles
 
@@ -33,6 +35,45 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
         backtracking.append(item)
     return backtracking
 
+
+def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till):
+    from candlecache import SliceRowIterator
+    hIterator = SliceRowIterator(dir, looper.instrumentName, highSlice, since, till, looper.api)
+    lIterator = SliceRowIterator(dir, looper.instrumentName, lowSlice, since, till, looper.api)
+
+    highCandles = [c for c in hIterator]
+    if(len(highCandles)<2):
+        raise ValueError("cannot work on so few high slice candles...")
+
+    hi =0
+    backtracking = []
+    pouch = []
+    hitime = highCandles[hi].time
+    hntime = highCandles[hi+1].time
+
+    for lc in lIterator:
+        ctime = lc.time
+        ci = cmp(ctime, hitime)
+        cn = cmp(ctime, hntime)
+        if(ci<0):
+            continue
+        elif(ci>=0 and cn<0):
+            pouch.append(lc)
+        elif(cn>=0):
+            if(hi<len(highCandles)):
+                yup = ( highCandles[hi], pouch )
+                backtracking.append(yup)
+            pouch = [ lc ]
+            hitime = hntime
+            hi += 1
+            if(hi+1>=len(highCandles)):
+                hntime = "9999-99-99T99:99:99.999999999Z"
+            else:
+                hntime = highCandles[hi+1].time
+
+    yup = ( highCandles[-1], pouch )
+    backtracking.append(yup)
+    return backtracking
 
 
 
@@ -150,25 +191,33 @@ class TradeLoop(object):
         self.simulatedPositions = []
 
 
-    def initialize(self, posFactory=None):
+    def initialize(self, posFactory=None, instrumentDict = None):
         api = self.api
         accountId = self.accountId
-        accountResp = api.account.get(accountId)
-        instResp    = api.account.instruments(accountId)
-        account = accountResp.get('account', '200')
-        instruments = instResp.get('instruments','200')
-        selectedInstruments = filter(lambda p: p.name == self.instrumentName, instruments)
 
-        if(len(selectedInstruments)==0):
-            raise ValueError("Select instrument not found for  account: " + args.instrumentName)
-        zInstrument = selectedInstruments[0]
+        if(instrumentDict is None) :
+            accountResp = api.account.get(accountId)
+            instResp    = api.account.instruments(accountId)
+            account = accountResp.get('account', '200')
+            instruments = instResp.get('instruments','200')
+            selectedInstruments = filter(lambda p: p.name == self.instrumentName, instruments)
+
+            if(len(selectedInstruments)==0):
+                raise ValueError("Select instrument not found for  account: " + args.instrumentName)
+            zInstrument = selectedInstruments[0]
+        else:
+            from candlecache import InstrumentCache, AccountCache
+            zInstrument = InstrumentCache(instrumentDict)
+            account = AccountCache()
 
         pipLocation = zInstrument.pipLocation
+        displayPrecision = zInstrument.displayPrecision
+
         pipFactor = 10**(pipLocation)
 
         self.pipLocation = pipLocation
         self.pipFactor   = pipFactor
-        self.displayPrecision = zInstrument.displayPrecision
+        self.displayPrecision = displayPrecision
         self.instrument = zInstrument
         print "Display Precision: {}".format(self.displayPrecision)
         self.account = account
