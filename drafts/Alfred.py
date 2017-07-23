@@ -97,7 +97,7 @@ class TradeStrategy(object):
                     pos1 = posMaker.make(False, c, self.defaultSize, c.ask.o + self.risk*self.mspread, c.bid.o-self.profit*self.mspread,
                                           c.bid.o-trailStart*self.mspread, trailDistance*self.mspread)
                     msg = "{0} -- Taking SELL position at Bidding price of {1}  medians[bid={2}, 10Kspread={3}, spread={4} pips sd={5} pips] RSI={6}".format(
-                                       c.time, c.bid.o, 
+                                       c.time, c.bid.o,
                                        self.mbid,self.mspread*10000,round(self.mspread*pipFactor,3),
                                        round(self.sdev*pipFactor,3), round(rsi,2))
                     if(logMsg):
