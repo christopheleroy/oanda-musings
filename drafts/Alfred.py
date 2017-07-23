@@ -1,5 +1,5 @@
 
-
+import logging
 
 
 class TradeStrategy(object):
@@ -82,15 +82,28 @@ class TradeStrategy(object):
                     # it is low (and rsi is close to oversold), we should buy
                     pos1 = posMaker.make(True, c,self.defaultSize, c.bid.o  - self.risk*self.mspread, c.ask.o+self.profit*self.mspread,
                                           trailStart*self.mspread+c.ask.o, trailDistance*self.mspread)
-                    if(logMsg):print("{0} -- Taking BUY position at Asking price of {1}  medians[bid={2}, 10Kspread={3}, spread={5}pips sd={4}pid] RSI={5}".format(\
-                                       c.time, c.ask.o, self.mbid,self.mspread*10000,self.sdev/pipFactor,self.mspread/pipFactor, rsi))
+                    msg = "{0} -- Taking BUY position at Asking price of {1}  medians[bid={2}, 10Kspread={3}, spread={4} pips sd={5} pips] RSI={6}".format(
+                                       c.time, c.ask.o,
+                                       self.mbid,self.mspread*10000,round(self.mspread*pipFactor,3),
+                                       round(self.sdev*pipFactor,3), round(rsi,2))
+                    if(logMsg):
+                        logging.warning(msg)
+                    else:
+                        logging.info(msg)
                     # if(args.debug): pdb.set_trace()
 
                 elif((c.bid.o > self.bidTrigger and  rsi>self.rsiLowMaker.oscHigh*0.95)):
                     # it is high (and rsi is close to overbought), we should sell
                     pos1 = posMaker.make(False, c, self.defaultSize, c.ask.o + self.risk*self.mspread, c.bid.o-self.profit*self.mspread,
                                           c.bid.o-trailStart*self.mspread, trailDistance*self.mspread)
-                    if(logMsg):print ("{0} -- Taking SELL position at Bidding price {1} of  medians[bid={2}, 10Kspread={3}, spread={6} pips, sd={4} pips] RSI={5}".format(c.time, c.bid.o, self.mbid,self.mspread*10000,self.sdev/pipFactor, rsi, self.mspread/pipFactor))
+                    msg = "{0} -- Taking SELL position at Bidding price of {1}  medians[bid={2}, 10Kspread={3}, spread={4} pips sd={5} pips] RSI={6}".format(
+                                       c.time, c.bid.o, 
+                                       self.mbid,self.mspread*10000,round(self.mspread*pipFactor,3),
+                                       round(self.sdev*pipFactor,3), round(rsi,2))
+                    if(logMsg):
+                        logging.warning(msg)
+                    else:
+                        logging.info(msg)
                     # if(args.debug): pdb.set_trace()
 
 
