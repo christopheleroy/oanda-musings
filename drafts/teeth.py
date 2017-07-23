@@ -129,8 +129,7 @@ def findExtremes(distribution, valuation, time, nlevel,dt):
 
     forwardOK = map((lambda n: checkN(n,False,True)), range(S))
     backwardOK = map((lambda n: checkN(n,True, False)), range(S))
-    #print forwardOK
-    #print backwardOK
+
 
     queueBefore = MovingQueue(nlevel)
     queueAfter = MovingQueue(nlevel)

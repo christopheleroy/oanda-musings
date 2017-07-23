@@ -158,6 +158,7 @@ class PathFinder(object):
 
         if step1 is None:
             raise ValueError("could not find first step for seed " + seed)
+        logging.debug("searching for paths with seed={}".format(seed))
 
         exhausted = False
         steps = [step1]
@@ -188,7 +189,7 @@ class PathFinder(object):
 
 
         for p in finalPaths:
-            print p.__str__()
+            logging.debug(p.__str__())
 
         return finalPaths
 

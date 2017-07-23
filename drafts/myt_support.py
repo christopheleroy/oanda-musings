@@ -1,5 +1,4 @@
-import datetime
-import time
+import datetime,time, logging
 import dateutil.parser
 import numpy as np
 from forwardInstrument import Opportunity
@@ -10,7 +9,7 @@ __dtconv = {} # a hash to remember conversion of time-strings to time-integers, 
 
 def getSortedCandles(loopr, kwargs):
     resp = loopr.api.instrument.candles(loopr.instrumentName, **kwargs)
-    if(str(resp.status) != '200'): print resp.body
+    if(str(resp.status) != '200'): logging.warning(resp.body)
     candles = resp.get('candles',200)
     candles.sort(lambda a,b: cmp(a.time, b.time))
     return candles
@@ -20,7 +19,7 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
     highKW = { "count": highCount, "price":"BA", "granularity":highSlice}
     lowKW  = { "price":"BA", "granularity":lowSlice}
 
-    print highKW
+    logging.debug(highKW)
     highCandles = getSortedCandles(loopr, highKW)
     backtracking = []
     for i in range(len(highCandles)):
@@ -29,7 +28,7 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
         if(i+1<len(highCandles)):
             b = highCandles[i+1]
             lowKW["toTime"] = b.time
-        print lowKW
+        logging.debug(lowKW)
         lowCandles = getSortedCandles(loopr, lowKW)
         item = (a, lowCandles)
         backtracking.append(item)
@@ -219,7 +218,6 @@ class TradeLoop(object):
         self.pipFactor   = pipFactor
         self.displayPrecision = displayPrecision
         self.instrument = zInstrument
-        print "Display Precision: {}".format(self.displayPrecision)
         self.account = account
         self.accountTime = time.time()
         if(posFactory is not None):
@@ -236,10 +234,10 @@ class TradeLoop(object):
                     ppos = positionFactory.makeFromExistingTrade(self.mkCandlestickTemplate(), self.account, tradeIDs[0])
                     freshPositions.append(ppos)
                 else:
-                    print "WARNING: too many tradeIDs for this position -- tough luck!"
+                    logging.warning("WARNING: too many tradeIDs for this position -- tough luck!")
                     raise ValueError("too many trades for single position?")
             else:
-                print "(trade less position)"
+                logging.debug("(trade less position)")
 
         self.positions = freshPositions
 
@@ -267,7 +265,7 @@ class TradeLoop(object):
                 self.account = accountResp.get('account', '200')
                 self.accountTime = time.time()
             except:
-                print "issue refreshing account ... skipping ..."
+                logging.critical( "issue refreshing account ... skipping ..." )
                 if(force or raiseX): raise
 
 
@@ -295,7 +293,6 @@ class PositionFactory(object):
     def makeFromExistingTrade(self, quoteTmpl, v20Account, tradeID):
         trade = _find_(lambda t: t.id == tradeID, v20Account.trades)
         orders = (filter(lambda t: t.tradeID == tradeID, v20Account.orders))
-        print map(lambda o: (o.id, o.type), v20Account.orders)
         tp0 = _find_(lambda t: t.type == 'TAKE_PROFIT', orders)
         sl0 = _find_(lambda t: t.type == 'STOP_LOSS', orders)
         tsl0 = _find_(lambda t: t.type == 'TRAILING_STOP_LOSS', orders)
@@ -343,14 +340,14 @@ class PositionFactory(object):
             distance = self.nicepadding(distance, looper.displayPrecision)
             # price    = self.nicepadding(price, looper.displayPrecision)
             tslargs = {"tradeID": str(pos.tradeID), "distance":  distance }
-            print tslargs
+            loggin.debug(tslargs)
             respTSL = None
             if(pos.trailingStopLossOrderId is None):
                 respTSL = looper.api.order.trailing_stop_loss(looper.accountId,  **tslargs)
             else:
-                print "replace order {}".format(pos.trailingStopLossOrderId)
+                logging.debug( "replace order {}".format(pos.trailingStopLossOrderId))
                 respTSL = looper.api.order.trailing_stop_loss_replace(looper.accountId,  pos.trailingStopLossOrderId, **tslargs)
-            print "status code:{}\nbody:{}".format(respTSL.status, respTSL.body)
+            logging.debug("status code:{}\nbody:{}".format(respTSL.status, respTSL.body))
             if(str(respTSL.status)=='201'):
                 time.sleep(float(wait)/1000.0)
         else:
@@ -382,14 +379,14 @@ class PositionFactory(object):
 
         kwargs['stopLossOnFill'] = {"price": nicepadding(sl, looper.displayPrecision)}
         kwargs['takeProfitOnFill'] = {"price": nicepadding(tp, looper.displayPrecision)}
-        print kwargs
+        logging.debug(kwargs)
         response = looper.api.order.market(
             looper.accountId,
             **kwargs
         )
         if(not(response.status == 201 or response.status == '201')):
-            print "Position / Trade could not be executed..."
-            print response.body
+            logging.critical( "Position / Trade could not be executed...")
+            logging.critical(response.body)
         else:
             newTrades =[]
             prevTradeIDs = map(lambda t: t.id, looper.account.trades)
@@ -401,9 +398,9 @@ class PositionFactory(object):
                 if(len(newTrades)==0):
                     noMore -= 1
                     if(noMore>0):
-                        print "new trade not executed yet - waiting again..."
+                        logging.info("new trade not executed yet - waiting again...")
                     else:
-                        print "new trade not executed yet - but continuing..."
+                        logging.warning("new trade not executed yet - but continuing...")
                         return pos, None
 
             newPos = self.makeFromExistingTrade(pos.entryQuote, looper.account, newTrades[0].id)
@@ -504,7 +501,7 @@ class Position(object):
             if(newDesiredDistance<minimumTrailingStopDistance): newDesiredDistance = minimumTrailingStopDistance
 
             if(newDesiredDistance < self.trailingStopDesiredDistance):
-                print "new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance)
+                logging.info("new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance))
                 self.trailingStopDesiredDistance = newDesiredDistance
                 self.trailingStopNeedsReplacement = True
             if(self.trailingStopDistance is not None):
@@ -565,11 +562,11 @@ class Position(object):
         if(self.forBUY):
             if(self.trailingStopValue is not None and self.trailingStopValue+self.trailingStopDistance<avgPrice):
                 self.trailingStopValue = avgPrice - self.trailingStopDistance
-                print "updated trailing stop value to {} with distance {}".format(self.trailingStopValue, self.trailingStopDistance)
+                logging.info("updated trailing stop value to {} with distance {}".format(self.trailingStopValue, self.trailingStopDistance))
         else:
             if(self.trailingStopValue is not None and self.trailingStopValue-self.trailingStopDistance>avgPrice):
                 self.trailingStopValue = avgPrice+self.trailingStopDistance
-                print "updated trailing stop value to {} with distance {}".format(self.trailingStopValue, self.trailingStopDistance)
+                logging.info("updated trailing stop value to {} with distance {}".format(self.trailingStopValue, self.trailingStopDistance))
 
 
     def expectedTrailingStopValue(self, currentQuote):
@@ -621,7 +618,7 @@ class Position(object):
         if(newStopValue is not None and self.trailingStopValue is not None):
             if((self.forBUY and newStopValue < 0.9999*self.trailingStopValue) or
                (not self.forBUY and 0.9999*newStopValue > self.trailingStopValue)):
-               print "WARNING: stop value calculations are retrograde!"
+               logging.critical( "WARNING: stop value calculations are retrograde!" )
                import pdb; pdb.set_trace()
                newStopValue2 = self.expectedTrailingStopValue(currentQuote)
 

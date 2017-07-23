@@ -1,5 +1,6 @@
 
 from teeth import MovingQueue
+import logging
 
 def defaultValuator(candle):
     return candle.bid.c
@@ -81,7 +82,7 @@ class OscillatorCalculation(object):
             self.avgLoss = self.sumLoss/self.size if(self.size>0) else 0.0
             self.RS = self.avgGain / self.avgLoss if(self.avgLoss>0) else 1.0
             self.RSI = 100*(self.RS/(1.0+self.RS))
-            #print "{}\t{} vs {}\t{} vs {}\tRS={}\tRSI={}".format(val, nGain, nLoss, self.avgGain, self.avgLoss, self.RS, self.RSI)
+            logging.debug("{}\t{} vs {}\t{} vs {}\tRS={}\tRSI={}".format(val, nGain, nLoss, self.avgGain, self.avgLoss, self.RS, self.RSI))
 
         self.mq.add(candleItem)
         self.recentVal = val
