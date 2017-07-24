@@ -239,6 +239,8 @@ class TradeLoop(object):
             else:
                 logging.debug("(trade less position)")
 
+        # make sure the position array is sorted by openTime
+        freshPositions.sort(lambda a,b: cmp(a.entryQuote.time, b.entryQuote.time))
         self.positions = freshPositions
 
     def mkCandlestickTemplate(self, withMid = False):

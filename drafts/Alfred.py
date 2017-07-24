@@ -112,17 +112,21 @@ class TradeStrategy(object):
                     pos1.trailingStopNeedsReplacement = False
 
                 if(pos1 is None):
-                    return "none", "wait", 0.0, 0.0, rsi, None
+                    return [ ("none", "wait", 0.0, 0.0, rsi, None ) ]
                 else:
-                    return "triggered", "take-position", 0.0, 0.0, rsi, pos1
+                    return [ ("triggered", "take-position", 0.0, 0.0, rsi, pos1) ]
 
             elif(pos1 is not None):
                 # import pdb; pdb.set_trace()
-                pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
-                event,todo,benef, benefRatio = pos1.timeToClose(c, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
-                return event, todo,benef,benefRatio, rsi, pos1
+                reply = []
+                for posN in loopr.positions:
+                    posN.calibrateTrailingStopLossDesireForSteppedSpecs(c,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
+                    event,todo,benef, benefRatio = posN.timeToClose(c, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
+                    reply.append( (event,todo,benef,benefRatio, rsi, posN) )
+                return reply
+                #return event, todo,benef,benefRatio, rsi, pos1
         else:
-            return "none", "wait", 0.0, 0.0, rsi, None
+            return [( "none", "wait", 0.0, 0.0, rsi, None)]
 
 
     def forCandles(self, high=False, counts=None):
