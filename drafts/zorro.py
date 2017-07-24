@@ -148,5 +148,5 @@ for d in dataset:
 
 
 logging.warning( "Money: {}".format(money) )
-logging.info("First time: {}  -- Last time: {}".format(firstTime,lastTime))
-logging.info(str(counts))
+logging.warning("First time: {}  -- Last time: {}".format(firstTime,lastTime))
+logging.warning(str(counts))
