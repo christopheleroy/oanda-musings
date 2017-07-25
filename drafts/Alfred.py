@@ -2,6 +2,80 @@
 import logging
 
 
+class RiskManagementStrategy(object):
+    def __init__(self, lossTrigger, sizeFactor, reRisk, profit):
+        self.lossTrigger = lossTrigger
+        self.sizeFactor  = sizeFactor
+        self.reRisk      = reRisk
+        self.profit      = profit
+
+    def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance):
+        if(currentDelta < -mspread*self.lossTrigger):
+                # so, supposed parentPos is in loss, we're taking a position that is going to be a buy
+                # at a lower value than parent pos to hope to get a little less loss ...
+                # but we won't BUY at an overbought position
+                rsiOK = (parentPos.forBUY and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI > rsiMaker.oscHigh*0.8 and not parentPos.forBUY)
+                if(not rsiOK):
+                    logging.warning("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
+                else:
+                    c = currentQuote
+                    rsi = rsiMaker.RSI
+                    size = parentPos.size * self.sizeFactor
+                    relevantRisk = (c.bid.o - self.reRisk * mspread) if(parentPos.forBUY) else (c.ask.o + self.reRisk*mspread)
+                    relevantProfit = (c.ask.o + self.profit * mspread) if (parentPos.forBUY) else (c.bid.o - self.profit*mspread)
+                    trailStopTrigger = (c.ask.o + trailStart * mspread) if(parentPos.forBUY) else (c.bid.o - trailStart*mspread)
+                    ##
+                    pos2 = posMaker.make(parentPos.forBUY, currentQuote,
+                                          size, relevantRisk, relevantProfit,
+                                          trailStopTrigger, trailDistance*mspread)
+                    logging.warning("{} - taking risk-management position ({}) size={}, at {} with take-profit:{} and save-loss:{} (RSI:{})".format(
+                                  currentQuote.time, ("BUY" if(parentPos.forBUY) else "SELL"), size,
+                                  (c.bid.o if(parentPos.forBUY) else c.ask.o),
+                                  relevantProfit, relevantRisk, rsi))
+                    return ("risk-mgt-trigger", "take-position", 0.0, 0.0, rsi, pos2)
+
+
+
+
+
+    @staticmethod
+    def parse(desc, bark=""):
+        import re
+        descs = desc.split(",")
+        them = []
+        rgx = re.compile(r"(\d+):([xpr\d\.]+)$")
+        sgx = re.compile(r"(\d+\.?\d*)([xpr])")
+        for d in descs:
+            d = d.lower()
+            if(rgx.match(d)):
+                lt = float( rgx.match(d).group()[0])
+                rem = rgx.match(d).groups()[1]
+                mapped = {}
+                while(len(rem)>0):
+                    bam = sgx.match(rem)
+                    if(bam is None):
+                        raise ValueError("{} - cannot parse {} as risk-management specs, fails on {}".format(bark, d, rem))
+                    xrp = bam.groups()[1]
+                    nnn = float(bam.groups()[0])
+                    if(nnn<=0):
+                        raise ValueErorr("{} - cannot use zero in risk management specs, fails on {}". format(bark,ren))
+                    if(mapped.has_key(xrp)):
+                        raise ValueError("{} - cannot specify {} multiply time in risk-mgt-specs, fails on {}".format(bark, xrp, rem))
+                    mapped[xrp]=nnn
+                    st = bam.start()
+                    en = bam.end()
+                    rem = rem[0:st] + rem[en:]
+                sf = mapped['x'] if(mapped.has_key('x')) else 2.0
+                pr = mapped['p'] if(mapped.has_key('p')) else (lt/sf)
+                ri = mapped['r'] if(mapped.has_key('r')) else (lt/sf)
+                them.append( RiskManagementStrategy(lt, sf, ri, pr) )
+                logging.info("parsed risk-management-spec {} as lossTrigger={}, sizeFactor={}, profit={}, re-risk={}".format(d, lt, sf, pr, ri))
+            else:
+                raise ValueError("{} - cannot parse risk-management spec {}".format(bark,d))
+
+        return them
+
+
 class TradeStrategy(object):
 
     def __init__(self, trigger, profit, risk, depth, select, defaultSize, highSlice, lowSlice, rsiSpecs, sdf, trailingSpecs):
@@ -18,6 +92,8 @@ class TradeStrategy(object):
         self.rsiSpecs = rsiSpecs
         self.simulation = True
         self.lastTick = None
+        self.riskManagement = []
+
 
 
 
@@ -69,14 +145,14 @@ class TradeStrategy(object):
 
     def decision(self, loopr, posMaker, logMsg=True):
         rsi = 50.0
+        trailStart = self.trailSpecs[0][0]
+        trailDistance = self.trailSpecs[0][1]
         if(self.queue.full()):
             pos1 = None if(len(loopr.positions)==0) else loopr.positions[0]
             c = self.rsiLowMaker.mq.last()
             rsi = self.rsiLowMaker.RSI
             if(pos1 is None):
                 #if(args.debug): pdb.set_trace()
-                trailStart = self.trailSpecs[0][0]
-                trailDistance = self.trailSpecs[0][1]
                 pipFactor = loopr.pipFactor
                 if((c.ask.o < self.askTrigger and  rsi<self.rsiLowMaker.oscLow*1.05)):
                     # it is low (and rsi is close to oversold), we should buy
@@ -119,9 +195,16 @@ class TradeStrategy(object):
             elif(pos1 is not None):
                 # import pdb; pdb.set_trace()
                 reply = []
-                for posN in loopr.positions:
+                for n in range(len(loopr.positions)):
+                    posN = loopr.positions[n]
                     posN.calibrateTrailingStopLossDesireForSteppedSpecs(c,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
                     event,todo,benef, benefRatio = posN.timeToClose(c, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
+                    if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
+                        management = self.riskManagement[n].watchTrigger(self.mspread, benef, c,
+                                                            self.rsiLowMaker, posN, posMaker, trailStart, trailDistance)
+                        if(management is not None):
+                            reply.append(management)
+
                     reply.append( (event,todo,benef,benefRatio, rsi, posN) )
                 return reply
                 #return event, todo,benef,benefRatio, rsi, pos1

@@ -49,6 +49,8 @@ parser.add_argument('--since', type=str)
 parser.add_argument('--till', type=str)
 parser.add_argument('--loglevel', type=int)
 parser.add_argument('--instruments', action='store_true')
+parser.add_argument('--insurance', help='Risk-Management specs for 2nd, 3rd or n-th trade to counter risk of first position')
+parser.add_argument('--msm', type=float, default=20, help='Max Size Multiple: maximum number of multiple of starting size for total engage size, when insurance kicks in. eg. with a 2x insurance and size 1000, the msm of 20 will prevent taking positions totaling a size above 20000")
 # parser.add_argument('--bt', action='store_true',
 #                     help="turns back-track on")
 
@@ -87,6 +89,9 @@ robot.simulation  = not args.execute
 looper.simulation = robot.simulation
 
 robot.initialize()
+if(args.insurance):
+    robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance)
+    #robot.maxEngagedSize = args.msm * args.size
 
 counts = {}
 
@@ -117,9 +122,10 @@ for d in dataset:
                     pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                     looper.positions.append(pos1)
                 elif(todo=='close'):
-                    logging.warning( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); RSI={3}".format(c.time, event, benef, round(rsi,2), round(benefRatio,2)))
+                    logging.warning( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); size={5}; RSI={3}".format(c.time,
+                                       event, benef, round(rsi,2), round(benefRatio,2), pos1.size))
                     # print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c))
-                    tag = ("BUY" if(pos1.forBUY)else "SELL") + " - " + event + " - " + ("gain" if(benef>0)else("loss"))
+                    tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
                     counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
 
                     money += benef*pos1.size
@@ -155,4 +161,5 @@ for d in dataset:
 
 logging.warning( "Money: {}".format(money) )
 logging.warning("First time: {}  -- Last time: {}".format(firstTime,lastTime))
-logging.warning(str(counts))
+for x in counts.keys():
+    logging.warning("{}: {}".format(x, counts[x]))

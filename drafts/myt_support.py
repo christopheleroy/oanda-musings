@@ -627,23 +627,22 @@ class Position(object):
         # import pdb; pdb.set_trace()
 
         if(self.forBUY):
-            delta = self.entryQuote.ask.o - avgPrice
-            benefRatio = -100*delta/self.expGain
-            lossRatio  = 100*delta/self.expLoss
-            holdRatio  = -benefRatio if(delta>0)else lossRatio
+            delta = avgPrice - self.entryQuote.ask.o
+            benefRatio = 100*delta/self.expGain
+            lossRatio  = -100*delta/self.expLoss
+            holdRatio  = -benefRatio if(delta<0)else lossRatio
 
             if(avgPrice < self.saveLoss ):
-                return ('save-loss', 'close', -delta, 100*delta / self.expLoss)
+                return ('save-loss', 'close', delta, -100*delta / self.expLoss)
             elif(avgPrice > self.takeProfit):
-                expGain = self.takeProfit - self.entryQuote.ask.o
-                return ('take-profit', 'close', -delta, -benefRatio)
+                return ('take-profit', 'close', delta, benefRatio)
             elif(self.trailingStopValue is None and newStopValue is not None):
-                return ('trailing-stop', 'trailing-stop', 0.0, holdRatio)
+                return ('trailing-stop', 'trailing-stop', delta, holdRatio)
             elif(self.trailingStopValue is not None and newStopValue is not None and round(newStopValue,7) != round(self.trailingStopValue,7)):
-                return ('trailing-stop', 'trailing-progress', 0.0,holdRatio)
+                return ('trailing-stop', 'trailing-progress', delta,holdRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue>avgPrice):
                 delta = self.entryQuote.ask.o - self.trailingStopValue
-                return ('trailing-stop', 'close', -delta, benefRatio)
+                return ('trailing-stop', 'close', delta, benefRatio)
 
         else:
 
@@ -658,14 +657,14 @@ class Position(object):
             elif(avgPrice < self.takeProfit ):
                 return ('take-profit', 'close', delta, benefRatio)
             elif(self.trailingStopDesiredDistance>0.0 and avgPrice <= self.trailingStopTriggerPrice and self.trailingStopValue is None):
-                return ('trailing-stop', 'trailing-stop', 0.0, holdRatio)
+                return ('trailing-stop', 'trailing-stop', delta, holdRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue-self.trailingStopDistance>avgPrice):
-                return ('trailing-stop', 'trailing-progress',0.0,holdRatio)
+                return ('trailing-stop', 'trailing-progress',delta,holdRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue < avgPrice):
                 delta = self.entryQuote.bid.o - self.trailingStopValue
                 return ('trailing-stop', 'close', delta, benefRatio)
 
         if(self.trailingStopNeedsReplacement):
-            return ('trailing-stop', 'trailing-update', 0.0, holdRatio)
+            return ('trailing-stop', 'trailing-update', delta, holdRatio)
 
-        return ('hold', 'hold', 0.0, holdRatio)
+        return ('hold', 'hold', delta, holdRatio)
