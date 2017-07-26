@@ -1,5 +1,4 @@
 
-
 import argparse, re, pdb, time, logging
 import oandaconfig
 import v20
@@ -8,6 +7,7 @@ import Alfred
 from myt_support import TradeLoop, trailSpecsFromStringParam, PositionFactory, \
                          getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles
 
+## Setting PARAMETER PARSING:
 parser = argparse.ArgumentParser()
 parser.add_argument('--size', nargs='?', type=float, default=1000.0,
                     help="size of the transaction in units (default 1000, which is a micro-lot in most pairs)");
@@ -29,7 +29,7 @@ parser.add_argument('--profit', nargs='?', type=float, default=3.0,
                     help="take-profit, as a multiple of median-spread")
 parser.add_argument('--trail', nargs='?', default='1:7,2:4,3:3,5:2,10:1')
 parser.add_argument('--rsi', nargs='?', default="14:31-71",
-                    help="RSI pattern, e.g 14:35-75, means use 14 interval to compute RSI and consider oversold when < 35 and overbought>=75)")
+                    help="RSI pattern, e.g 14:35-75, means use 14 intervals to compute RSI and consider oversold when < 35 and overbought>=75)")
 parser.add_argument('--after', nargs='?', type=int, default=0)
 parser.add_argument('--stop', nargs='?', type=int, default = 1000)
 parser.add_argument('--debug', action='store_true')
@@ -45,22 +45,25 @@ parser.add_argument('--bf', default=20, type=float,
                     help="frequency of displaying the 'banner', ever n times the tick is displayed")
 parser.add_argument('--trace', action='store_true')
 parser.add_argument('--dir', type=str, help='candle cache directory')
-parser.add_argument('--since', type=str)
-parser.add_argument('--till', type=str)
+parser.add_argument('--since', type=str, help="start simulation then, as RFC3339")
+parser.add_argument('--till', type=str, help="end simulation then, as RFC3339")
 parser.add_argument('--loglevel', type=int)
-parser.add_argument('--instruments', action='store_true')
+parser.add_argument('--instruments', action='store_true', help="force using cached-instrument definitions (use only with option --dir)")
 parser.add_argument('--insurance', help='Risk-Management specs for 2nd, 3rd or n-th trade to counter risk of first position')
-parser.add_argument('--msm', type=float, default=20, help='Max Size Multiple: maximum number of multiple of starting size for total engage size, when insurance kicks in. eg. with a 2x insurance and size 1000, the msm of 20 will prevent taking positions totaling a size above 20000")
-# parser.add_argument('--bt', action='store_true',
-#                     help="turns back-track on")
+parser.add_argument('--msm', type=float, default=20, help="Max Size Multiple: maximum number of multiple of starting size for total engaged size, when insurance kicks in. eg. with a 2x insurance and size 1000, the msm of 20 will prevent taking positions totaling a size above 20000")
+parser.add_argument('--rsiok', action='store_true', help='when true, always consider RSI ok (do not care about RSI) in Risk Managment triggers')
+parser.add_argument('--hourly', action='store_true', help='to display money progress on an hourly basis')
 
-# parser.add_argument('--level', nargs='?', type=int, default=4)
+## Parse Arguments
 args = parser.parse_args()
+
+# Adjust log levels
 if(args.loglevel is not None):
     logging.basicConfig(level=args.loglevel)
 
-money = args.start
 
+# Environment and Robot Set-Up
+money = args.start
 slices = args.slice.split("/")
 trailSpecs = trailSpecsFromStringParam(args.trail)
 
@@ -69,6 +72,7 @@ cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
 looper = TradeLoop(api, cfg.active_account, args.select, 200*1000.0)
+# Initialize looper / robot - handle caching if requested
 if(args.instruments):
     from candlecache import findInstrument
     instDict  = findInstrument(args.dir, args.select)
@@ -91,7 +95,11 @@ looper.simulation = robot.simulation
 robot.initialize()
 if(args.insurance):
     robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance)
-    #robot.maxEngagedSize = args.msm * args.size
+    robot.maxEngagedSize = args.msm * args.size
+    logging.info("Risk Managment: {} specs parsed, max engage size will be : {}".format(len(robot.riskManagement), robot.maxEngagedSize))
+    if(args.rsiok):
+        logging.info("Risk Management will have 'rsiAlwaysOK' set to True")
+        for rm in robot.riskManagement: rm.rsiAlwaysOK = True
 
 counts = {}
 
@@ -106,12 +114,20 @@ else:
 
 firstTime = dataset[0][1][0].time
 lastTime = firstTime
+helloTime = firstTime
+helloMoney = money
+logging.critical("{} - MONEY: {} - Diff: {}".format(helloTime, helloMoney, 0.0))
 for d in dataset:
     highCandle = d[0]
     lowCandles = d[1]
     robot.digestHighCandle(highCandle)
     for c in lowCandles:
         lastTime = c.time
+        if(lastTime[:11] != helloTime[:11]):
+            logging.critical("{} - MONEY: {} - Diff: {}".format(lastTime, money, money - helloMoney))
+            helloMoney = money
+            helloTime = lastTime
+
         robot.digestLowCandle(c)
         #print(c)
         decisions = robot.decision(looper, posMaker)

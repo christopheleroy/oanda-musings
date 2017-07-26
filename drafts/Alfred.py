@@ -8,19 +8,33 @@ class RiskManagementStrategy(object):
         self.sizeFactor  = sizeFactor
         self.reRisk      = reRisk
         self.profit      = profit
+        self.warningsRSI  = 0
+        self.warningsSize = 0
+        self.rsiAlwaysOK = False
 
-    def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance):
+    def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance,sizeMax):
         if(currentDelta < -mspread*self.lossTrigger):
                 # so, supposed parentPos is in loss, we're taking a position that is going to be a buy
                 # at a lower value than parent pos to hope to get a little less loss ...
                 # but we won't BUY at an overbought position
-                rsiOK = (parentPos.forBUY and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI > rsiMaker.oscHigh*0.8 and not parentPos.forBUY)
+                rsiOK = self.rsiAlwaysOK or (parentPos.forBUY and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI > rsiMaker.oscHigh*0.8 and not parentPos.forBUY)
                 if(not rsiOK):
-                    logging.warning("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
+                    if(self.warningsRSI < 3 or self.warningsRSI % 3 == 0):
+                        logging.warning("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
+                    self.warningsRSI +=1
+                elif(sizeMax<=0):
+                    if(self.warningsSize<2 or self.warningsSize % 30 == 0): logging.warning("Risk-management position is not attempted because engaged size was reached")
+                    self.warningSize+=1
                 else:
                     c = currentQuote
                     rsi = rsiMaker.RSI
                     size = parentPos.size * self.sizeFactor
+                    if(size>sizeMax):
+                        logging.warning("risk-management position, size {} reduced to {}, because of max-size limit".format(size, sizeMax))
+                        size=sizeMax
+
+                    self.warningsSize = 0
+                    self.warningsRSI  = 0
                     relevantRisk = (c.bid.o - self.reRisk * mspread) if(parentPos.forBUY) else (c.ask.o + self.reRisk*mspread)
                     relevantProfit = (c.ask.o + self.profit * mspread) if (parentPos.forBUY) else (c.bid.o - self.profit*mspread)
                     trailStopTrigger = (c.ask.o + trailStart * mspread) if(parentPos.forBUY) else (c.bid.o - trailStart*mspread)
@@ -93,6 +107,7 @@ class TradeStrategy(object):
         self.simulation = True
         self.lastTick = None
         self.riskManagement = []
+        self.maxEngagedSize = defaultSize
 
 
 
@@ -195,13 +210,16 @@ class TradeStrategy(object):
             elif(pos1 is not None):
                 # import pdb; pdb.set_trace()
                 reply = []
+                currentlyEngagedSize = reduce(lambda s,x: s + x.size , loopr.positions, 0)
                 for n in range(len(loopr.positions)):
                     posN = loopr.positions[n]
                     posN.calibrateTrailingStopLossDesireForSteppedSpecs(c,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
                     event,todo,benef, benefRatio = posN.timeToClose(c, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
                     if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
+                        sizeMax = self.maxEngagedSize - currentlyEngagedSize
                         management = self.riskManagement[n].watchTrigger(self.mspread, benef, c,
-                                                            self.rsiLowMaker, posN, posMaker, trailStart, trailDistance)
+                                                            self.rsiLowMaker, posN, posMaker,
+                                                            trailStart, trailDistance, sizeMax)
                         if(management is not None):
                             reply.append(management)
 
