@@ -53,6 +53,7 @@ parser.add_argument('--insurance', help='Risk-Management specs for 2nd, 3rd or n
 parser.add_argument('--msm', type=float, default=20, help="Max Size Multiple: maximum number of multiple of starting size for total engaged size, when insurance kicks in. eg. with a 2x insurance and size 1000, the msm of 20 will prevent taking positions totaling a size above 20000")
 parser.add_argument('--rsiok', action='store_true', help='when true, always consider RSI ok (do not care about RSI) in Risk Managment triggers')
 parser.add_argument('--hourly', action='store_true', help='to display money progress on an hourly basis')
+parser.add_argument('--rsimode', default="+", choices=("+", "0","-"))
 
 ## Parse Arguments
 args = parser.parse_args()
@@ -61,6 +62,10 @@ args = parser.parse_args()
 if(args.loglevel is not None):
     logging.basicConfig(level=args.loglevel)
 
+def hourlydaily(lastTime,helloTime):
+    if(args.hourly):
+        return lastTime[:13] != helloTime[:13]
+    return lastTime[:11] != helloTime[:11]
 
 # Environment and Robot Set-Up
 money = args.start
@@ -93,6 +98,7 @@ robot.simulation  = not args.execute
 looper.simulation = robot.simulation
 
 robot.initialize()
+robot.rsiMode = args.rsimode
 if(args.insurance):
     robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance)
     robot.maxEngagedSize = args.msm * args.size
@@ -123,7 +129,7 @@ for d in dataset:
     robot.digestHighCandle(highCandle)
     for c in lowCandles:
         lastTime = c.time
-        if(lastTime[:11] != helloTime[:11]):
+        if(hourlydaily(lastTime, helloTime)):
             logging.critical("{} - MONEY: {} - Diff: {}".format(lastTime, money, money - helloMoney))
             helloMoney = money
             helloTime = lastTime

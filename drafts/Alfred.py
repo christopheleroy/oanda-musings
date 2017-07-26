@@ -108,6 +108,7 @@ class TradeStrategy(object):
         self.lastTick = None
         self.riskManagement = []
         self.maxEngagedSize = defaultSize
+        self.rsiMode = "+"
 
 
 
@@ -132,6 +133,7 @@ class TradeStrategy(object):
         self.queue.skipper = skipIdenticalCandles
         self.rsiHighMaker.setSkipper(skipIdenticalCandles)
         self.rsiLowMaker.setSkipper(skipIdenticalCandles)
+
 
 
 
@@ -166,10 +168,15 @@ class TradeStrategy(object):
             pos1 = None if(len(loopr.positions)==0) else loopr.positions[0]
             c = self.rsiLowMaker.mq.last()
             rsi = self.rsiLowMaker.RSI
+            lowRSI = (rsi < self.rsiLowMaker.oscLow *1.05)
+            highRSI = (rsi > self.rsiLowMaker.oscHigh * 0.95)
+            rsiOKForBuy = lowRSI if(self.rsiMode == "+") else (highRSI if(self.rsiMode=="-") else True)
+            rsiOKForSell= highRSI if(self.rsiMode == "+") else (lowRSI if(self.rsiMode=="-") else True)
+
             if(pos1 is None):
                 #if(args.debug): pdb.set_trace()
                 pipFactor = loopr.pipFactor
-                if((c.ask.o < self.askTrigger and  rsi<self.rsiLowMaker.oscLow*1.05)):
+                if(c.ask.o < self.askTrigger and  rsiOKForBuy ):
                     # it is low (and rsi is close to oversold), we should buy
                     pos1 = posMaker.make(True, c,self.defaultSize, c.bid.o  - self.risk*self.mspread, c.ask.o+self.profit*self.mspread,
                                           trailStart*self.mspread+c.ask.o, trailDistance*self.mspread)
@@ -183,7 +190,7 @@ class TradeStrategy(object):
                         logging.info(msg)
                     # if(args.debug): pdb.set_trace()
 
-                elif((c.bid.o > self.bidTrigger and  rsi>self.rsiLowMaker.oscHigh*0.95)):
+                elif(c.bid.o > self.bidTrigger and  rsiOKForSell):
                     # it is high (and rsi is close to overbought), we should sell
                     pos1 = posMaker.make(False, c, self.defaultSize, c.ask.o + self.risk*self.mspread, c.bid.o-self.profit*self.mspread,
                                           c.bid.o-trailStart*self.mspread, trailDistance*self.mspread)
