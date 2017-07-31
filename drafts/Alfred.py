@@ -11,13 +11,15 @@ class RiskManagementStrategy(object):
         self.warningsRSI  = 0
         self.warningsSize = 0
         self.rsiAlwaysOK = False
+        self.rsiInverted = False
 
     def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance,sizeMax):
         if(currentDelta < -mspread*self.lossTrigger):
                 # so, supposed parentPos is in loss, we're taking a position that is going to be a buy
                 # at a lower value than parent pos to hope to get a little less loss ...
                 # but we won't BUY at an overbought position
-                rsiOK = self.rsiAlwaysOK or (parentPos.forBUY and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI > rsiMaker.oscHigh*0.8 and not parentPos.forBUY)
+                rsiSwitch = parentPos.forBUY if(not self.rsiInverted) else not parentPos.forBUY
+                rsiOK = self.rsiAlwaysOK or (rsiSwitch and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI > rsiMaker.oscHigh*0.8 and not rsiSwitch)
                 if(not rsiOK):
                     if(self.warningsRSI < 3 or self.warningsRSI % 3 == 0):
                         logging.warning("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
@@ -114,6 +116,7 @@ class TradeStrategy(object):
 
 
 
+
     def initialize(self):
         import oscillators
         import teeth
@@ -152,8 +155,29 @@ class TradeStrategy(object):
             self.mspread = np.median(spreads)
             self.mbid = np.median(bids)
             self.mask = np.median(asks)
-            self.bidTrigger = self.mbid - self.trigger*self.mspread + self.sdf*self.sdev
-            self.askTrigger = self.mask + self.trigger*self.mspread - self.sdf*self.sdev
+            bidTrigger = self.mbid + self.trigger*self.mspread - self.sdf*self.sdev
+            askTrigger = self.mask - self.trigger*self.mspread + self.sdf*self.sdev
+            changes=False
+            if(self.bidTrigger is None or self.askTrigger is None):
+                logging.info("Trigger set: [{}, {}]  medians=[{},{}]". format(bidTrigger, askTrigger, self.mbid, self.mask))
+                changes=True
+            elif(bidTrigger != self.bidTrigger or askTrigger != self.askTrigger):
+                db = round((bidTrigger - self.bidTrigger), 6)
+                da = round( (askTrigger - self.askTrigger),6)
+                logging.info("Trigger changes [{} , {} ] [{}, {}] medians=[{},{}]".format(db,da,bidTrigger,askTrigger, self.mbid, self.mask))
+                changes = True
+            self.bidTrigger = bidTrigger
+            self.askTrigger = askTrigger
+
+            if(changes):
+                logging.info("BID component (median={} - (trigger={} * mspread={} == {})  + (sdf={} * sdef={}) =={}) =  {}".format(
+                     self.mbid, self.trigger, self.mspread, self.trigger*self.mspread,
+                                self.sdf, self.sdev, self.sdf*self.sdev,
+                                bidTrigger))
+                logging.info("ASK component (median={} + (trigger={} * mspread={} == {})  - (sdf={} * sdef={}) =={}) =  {}".format(
+                     self.mask, self.trigger, self.mspread, self.trigger*self.mspread,
+                                self.sdf, self.sdev, self.sdf*self.sdev,
+                                askTrigger))
 
 
     def digestLowCandle(self,candle):

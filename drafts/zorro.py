@@ -27,33 +27,37 @@ parser.add_argument('--risk', nargs='?', type=float, default=1.0,
                     help="stop-loss, as a multiple of median-spread")
 parser.add_argument('--profit', nargs='?', type=float, default=3.0,
                     help="take-profit, as a multiple of median-spread")
-parser.add_argument('--trail', nargs='?', default='1:7,2:4,3:3,5:2,10:1')
+parser.add_argument('--invert', action='store_true',
+                    help="invert the logic on trigger/sdf for when to elect to take a position")
+parser.add_argument('--trail', nargs='?', default='1:7,2:4,3:3,5:2,10:1',
+                    help="specify the trailing-stop approache (warning: there is a default value, so better specify this parameter)")
 parser.add_argument('--rsi', nargs='?', default="14:31-71",
                     help="RSI pattern, e.g 14:35-75, means use 14 intervals to compute RSI and consider oversold when < 35 and overbought>=75)")
 parser.add_argument('--after', nargs='?', type=int, default=0)
 parser.add_argument('--stop', nargs='?', type=int, default = 1000)
 parser.add_argument('--debug', action='store_true')
 parser.add_argument('--pessimist', action='store_true',
-                    help="when estimating openingn or closing prices, assume you close in a disadvantageous positoin between the open value and the more extreme value in the candle where you estimate you'll close, otherwise, estimate on the opening price inthe candle")
+                    help="when estimating opening or closing prices, assume you close in a disadvantageous position between the open value and the more extreme value in the candle where you estimate you'll close, otherwise, estimate on the opening price in the candle")
 parser.add_argument('--execute', action='store_true',
                     help='flag to confirm you want orders to be executed')
-parser.add_argument('--random', default='none',
-                    help='(debug purposes) pass "buy" or "sell", for random buy, the buy will be triggered as soon as ASK is below median Ask and regardless of RSI')
+
 parser.add_argument('--sdf', default=0.3, type=float,
                     help="the weight of the standard deviation of bid around median bid in calculating how much we differ from median bid or median ask, when computing the trigger point (default 0.3)")
 parser.add_argument('--bf', default=20, type=float,
                     help="frequency of displaying the 'banner', ever n times the tick is displayed")
 parser.add_argument('--trace', action='store_true')
-parser.add_argument('--dir', type=str, help='candle cache directory')
+parser.add_argument('--dir', type=str, help='candle-cache directory')
 parser.add_argument('--since', type=str, help="start simulation then, as RFC3339")
 parser.add_argument('--till', type=str, help="end simulation then, as RFC3339")
 parser.add_argument('--loglevel', type=int)
 parser.add_argument('--instruments', action='store_true', help="force using cached-instrument definitions (use only with option --dir)")
 parser.add_argument('--insurance', help='Risk-Management specs for 2nd, 3rd or n-th trade to counter risk of first position')
 parser.add_argument('--msm', type=float, default=20, help="Max Size Multiple: maximum number of multiple of starting size for total engaged size, when insurance kicks in. eg. with a 2x insurance and size 1000, the msm of 20 will prevent taking positions totaling a size above 20000")
-parser.add_argument('--rsiok', action='store_true', help='when true, always consider RSI ok (do not care about RSI) in Risk Managment triggers')
-parser.add_argument('--hourly', action='store_true', help='to display money progress on an hourly basis')
-parser.add_argument('--rsimode', default="+", choices=("+", "0","-"))
+parser.add_argument('--rrsi', choices=("ok","normal","inverted"), default="normal",
+                      help='whether or how to consider RSI when deciding to take a risk-management position')
+parser.add_argument('--hourly', action='store_true', help='to display money progress on an hourly basis instead of daily')
+parser.add_argument('--rsimode', default="+", choices=("+", "0","-"), help="whether and how to consider RSI when deciding to take an initial position")
+parser.add_argument('--nzd', action='store_true', help='avoid the hourly/daily log of money amount if no difference')
 
 ## Parse Arguments
 args = parser.parse_args()
@@ -87,11 +91,12 @@ if(args.instruments):
 else:
     looper.initialize(posMaker)
 
+pm = -1 if(args.invert) else 1
 
-robot = Alfred.TradeStrategy(args.trigger, args.profit, args.risk,
+robot = Alfred.TradeStrategy(args.trigger*pm, args.profit, args.risk,
                args.depth, args.select, args.size,
                slices[0], slices[1],
-               args.rsi, args.sdf, trailSpecs)
+               args.rsi, args.sdf*pm, trailSpecs)
 
 # set the simulation booleans
 robot.simulation  = not args.execute
@@ -103,9 +108,12 @@ if(args.insurance):
     robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance)
     robot.maxEngagedSize = args.msm * args.size
     logging.info("Risk Managment: {} specs parsed, max engage size will be : {}".format(len(robot.riskManagement), robot.maxEngagedSize))
-    if(args.rsiok):
+    if(args.rrsi == 'ok'):
         logging.info("Risk Management will have 'rsiAlwaysOK' set to True")
         for rm in robot.riskManagement: rm.rsiAlwaysOK = True
+    elif(args.rrsi=='inverted'):
+        logging.info("Risk Management will have rsiInverted set to True")
+        for rm in robot.riskManagement: rm.rsiInverted = True
 
 counts = {}
 
@@ -114,7 +122,17 @@ dataset =  None
 if(args.dir is None):
     dataset = getBacktrackingCandles(looper, args.depth*args.drag, slices[0], slices[1])
 else:
-    dataset = getCachedBacktrackingCandles(looper, args.dir,slices[0], slices[1], args.since, args.till)
+    def extOnModel(ts, tsm):
+        """ if since/till are only partial specs, we expand to meaningful specifications from a model"""
+        if(ts is not None and len(ts)<len(tsm)):
+            return ts + tsm[ len(ts): ]
+        return ts
+
+    sinceModel = "XXXX-01-01T00:00:00.000000000Z"
+    tillModel  = "XXXX-12-31T23:59:59.999999999Z"
+    if(len(args.since)<4 or (args.till is not None and len(args.till) < 4)):
+        raise ValueError("since / till parameters must be at least 4 characters of a RFC3339 string")
+    dataset = getCachedBacktrackingCandles(looper, args.dir,slices[0], slices[1], extOnModel(args.since, sinceModel), extOnModel(args.till, tillModel))
 
 
 
@@ -129,7 +147,7 @@ for d in dataset:
     robot.digestHighCandle(highCandle)
     for c in lowCandles:
         lastTime = c.time
-        if(hourlydaily(lastTime, helloTime)):
+        if(hourlydaily(lastTime, helloTime) and (helloMoney != money or not args.nzd)):
             logging.critical("{} - MONEY: {} - Diff: {}".format(lastTime, money, money - helloMoney))
             helloMoney = money
             helloTime = lastTime
@@ -174,7 +192,9 @@ for d in dataset:
                     if(pos1 is not None):
                         pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                         rvp = pos1.relevantPrice(c)
+                        logging.debug(pos1)
                     if(args.trace): args.debug("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
+
                     continue
                 else:
                     logging.critical( "{} -- not sure what to do with {}".format(c.time, todo))
