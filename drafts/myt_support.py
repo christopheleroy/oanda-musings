@@ -103,6 +103,13 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
 
 
 
+def getLiveCandles(looper, depth, highSlice, lowSlice, price = "BA"):
+    from livecandlehierarchy import DualLiveCandles
+
+    return DualLiveCandles(looper, highSlice, depth, lowSlice, price)
+
+
+
 
 def trailSpecsFromStringParam(paramValue, msgHead="trailing-stop-specs"):
     trailSpecs = []

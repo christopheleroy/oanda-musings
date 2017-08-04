@@ -5,7 +5,7 @@ import v20
 
 import Alfred
 from myt_support import TradeLoop, trailSpecsFromStringParam, PositionFactory, \
-                         getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles
+                         getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles, getLiveCandles
 
 ## Setting PARAMETER PARSING:
 parser = argparse.ArgumentParser()
@@ -141,16 +141,20 @@ else:
 
 # adding quick way to check on order of candles
 if(args.tzt):
+    import  pdb; pdb.set_trace()
     for pq in dataset:
-        print pq[0].time
-        tt = map(lambda x: x.time[10:19], pq[1])
-        print ";".join(tt)
+        tt = []
+        for x in pq[1]:
+            print "> {} -- {} ".format(x.time[10:19], time.time())
+            tt.append(x.time[10:19]);
+        print "; ".join(tt)
+        print ">> high: {} --- {} ".format(pq[0].next().time if(args.execute) else pq[0].time, time.time())
     import sys
     sys.exit(99)
 
 
 
-firstTime = dataset[0][0].time
+firstTime = "??" #dataset[0][0].time
 lastTime = firstTime
 helloTime = firstTime
 helloMoney = money
@@ -238,7 +242,14 @@ for d in dataset:
             else:
                 logging.critical( "{} -- not sure what to do with {}".format(c.time, todo))
 
-    robot.digestHighCandle(highCandle)
+    if(args.execute):
+        # when execute - we're using this special "iterator" approach for high-candle
+        # we must use the iterator.next() only now to make sure we get it at the right time...
+        for hc in highCandle:
+            robot.digestHighCandle(hc)
+            break # use only once..
+    else:
+        robot.digestHighCandle(highCandle)
 
 
 
