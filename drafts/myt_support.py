@@ -15,14 +15,20 @@ def getSortedCandles(loopr, kwargs):
     return candles
 
 
-def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
+def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice, lowAheadOfHigh=True):
+    """ get high and low slice candles from OANDA api.
+        This will provide the number of highCount high-slice candles and the low-slice candles in between.
+        See getCachedBacktrackingCandles for details on other parameters"""
     highKW = { "count": highCount, "price":"BA", "granularity":highSlice}
     lowKW  = { "price":"BA", "granularity":lowSlice}
 
+    xoff = 1 if(lowAheadOfHigh) else 0
+
     logging.debug(highKW)
     highCandles = getSortedCandles(loopr, highKW)
-    backtracking = []
-    for i in range(len(highCandles)):
+    # when not lowAheadOfHigh starts with an empty backtracking list, otherwise starts with single high candle and no low candles
+    backtracking = [ (highCandles[0],[]) ] if(lowAheadOfHigh) else []
+    for i in range(len(highCandles)-xoff):
         a = highCandles[i]
         lowKW["fromTime"] = a.time
         if(i+1<len(highCandles)):
@@ -30,12 +36,24 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice):
             lowKW["toTime"] = b.time
         logging.debug(lowKW)
         lowCandles = getSortedCandles(loopr, lowKW)
-        item = (a, lowCandles)
+        hc = highCandles[i+xoff]
+        item = (hc, lowCandles)
         backtracking.append(item)
+
     return backtracking
 
 
-def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till):
+def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, lowAheadOfHigh=True):
+    """ use cached data to provide candles for a high-slice and low-slice, on a [since,till] time range
+        highSlice must be higher than lowSlice (e.g H1 for high slice, M1 for low slice)
+        What is returned is a list L of pairs ([0],[1]), where the 1st element of the pair L[n][0] is the single high candle,
+        and the 2nd element of the pair L[n][1] is the list of low candles contained under L[n][0].
+        when lowAheadOfHigh is true, then all elements in L[n][1] have a time that is before L[n][0].
+        When lowAheadOfHigh is false, then all elemetns in L[n+1][1] have a time that is before L[n][0]
+        Example times for M15 vs M5 slices:
+        lowAheadOfHigh:  [ (01:15:00, [ 01:00:00, 01:05:00, 01:10:00 ] ]), (01:30:00, [01:15:00, 01:20:00, 01:25:00 ]), ...]
+        not lowAheadOfHigh: [ (01:15:00, [ 01:15:00, 01:20:00, 01:25:00 ] ]), (01:30:00, [01:30:00, 01:35:00, 01:40:00 ]), ...]"""
+
     from candlecache import SliceRowIterator
     hIterator = SliceRowIterator(dir, looper.instrumentName, highSlice, since, till, looper.api)
     lIterator = SliceRowIterator(dir, looper.instrumentName, lowSlice, since, till, looper.api)
@@ -50,6 +68,12 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till):
     hitime = highCandles[hi].time
     hntime = highCandles[hi+1].time
 
+    xoff = 1 if(lowAheadOfHigh) else 0
+
+    if(lowAheadOfHigh):
+        yup = (highCandles[0], [])
+        backtracking.append(yup)
+
     for lc in lIterator:
         ctime = lc.time
         ci = cmp(ctime, hitime)
@@ -59,8 +83,8 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till):
         elif(ci>=0 and cn<0):
             pouch.append(lc)
         elif(cn>=0):
-            if(hi<len(highCandles)):
-                yup = ( highCandles[hi], pouch )
+            if(hi+xoff<len(highCandles)):
+                yup = ( highCandles[hi+xoff], pouch )
                 backtracking.append(yup)
             pouch = [ lc ]
             hitime = hntime
@@ -70,8 +94,11 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till):
             else:
                 hntime = highCandles[hi+1].time
 
-    yup = ( highCandles[-1], pouch )
-    backtracking.append(yup)
+    if(not lowAheadOfHigh):
+        yup = ( highCandles[-1], pouch )
+        backtracking.append(yup)
+
+
     return backtracking
 
 
