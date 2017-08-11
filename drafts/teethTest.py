@@ -47,7 +47,7 @@ def show(seq, init, nlevel):
     mxn = "lvl "+ str(nlevel) +": "
     for n in range(len(q)):
         ch = " "
-        if(a[n]): ch = "."
+        if(a[n]): ch = "v"
         if(b[n]): ch = "^"
         mxn = mxn + ch
     print mxn
