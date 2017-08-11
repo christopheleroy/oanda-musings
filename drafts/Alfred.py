@@ -227,6 +227,21 @@ class TradeStrategy(object):
                     else:
                         logging.info(msg)
                     # if(args.debug): pdb.set_trace()
+                else:
+                    msgs = []
+                    if(c.bid.o<=self.bidTrigger):
+                        msgs.append("{} Bid {} too low (trigger={})".format(c.time,c.bid.o,self.bidTrigger))
+                    elif(not rsiOKForSell):
+                        msgs.append("{} Bid {} high enough for trigger (={}) but RSI={} not ok".format(c.time,c.bid.o, self.bidTrigger, rsi))
+
+                    if(c.ask.o>=self.askTrigger):
+                        msgs.append("{} Ask {} too high (trigger={})".format(c.time, c.ask.o, self.askTrigger))
+                    elif(not rsiOKForBuy):
+                        msgs.append("{} Ask {} low enough for trigger (={}) but RSI={} not ok".format(c.time,c.ask.o, self.askTrigger, rsi))
+
+
+                    for m in msgs:
+                        logging.info(m)
 
 
                 if(pos1 is not None):
