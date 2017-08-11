@@ -427,7 +427,7 @@ class PositionFactory(object):
 
             while(len(newTrades)==0):
                 time.sleep(wait/1000.0)
-                looper.refreshPositions(True)
+                looper.refreshPositions(self, force=True)
                 newTrades = [ t for t in looper.account.trades if t.id not in prevTradeIDs and t.instrument == looper.instrumentName ]
                 if(len(newTrades)==0):
                     noMore -= 1
