@@ -7,7 +7,7 @@ def RFC3339_to_INT(ctime):
     return int(dateutil.parser.parse(ctime).strftime("%s"))
 
 def INT_to_RFC3339(itime):
-    return datetime.datetime.utcfromtimestamp(itime).isoformat('T') + 'Z'
+    return datetime.datetime.utcfromtimestamp(itime).isoformat('T') + '.000000000Z'
 
 def slowmogrow(n,k):
     import math
@@ -46,6 +46,7 @@ class LiveCandle(object):
         return getSortedCandles(self.looper, kwargs)
 
     def setBacklog(self):
+        """setBacklog is expected to be called once, and sets the backlog to a number of (backtracking) candles in the past"""
         self.backlog = self.getRecentCandles(None, since = self.since) if(self.since is not None) \
                                 else self.getRecentCandles(self.initial)
 
@@ -53,7 +54,7 @@ class LiveCandle(object):
         lt = self.lastGiven.time
         zoo = filter(lambda c: cmp(lt, c.time)<0 and (c.complete or not self.require_complete), self.backlog)
         if(len(zoo)==0):
-            # import pdb; pdb.set_trace()
+            # logging.debug( map (lambda c: c.time[10:19], self.backlog))
             # so the backlog has been exhausted, let's see if we should wait some more
             now = time.time()
             lastNow = self.lastTimeGiven
@@ -76,7 +77,7 @@ class LiveCandle(object):
         if(len(self.backlog)==0):
             self.setBacklog()
             if(self.duration is not None):
-                t0 = RFC3339_to_INT(self.backlog[0].time)
+                t0 = RFC3339_to_INT(self.backlog[0].time if(self.since is None) else self.since)
                 texp = t0+self.duration
                 self.timeLimit = INT_to_RFC3339(texp)
 
@@ -105,7 +106,7 @@ class LiveCandle(object):
             lg = zoo[0]
 
 
-        if(self.timeLimit is not None and cmp(self.timeLimit, lg)<=0):
+        if(self.timeLimit is not None and cmp(self.timeLimit, lg.time)<0):
             self.expired = True
             raise StopIteration()
 
@@ -121,7 +122,7 @@ class LiveCandle(object):
 
 class DualLiveCandles(object):
 
-    def __init__(self,loopr, highSlice,initial, lowSlice, price="BA"):
+    def __init__(self,loopr, highSlice,initial, lowSlice, price="BA", complete_policy="high"):
         self.looper = loopr
         self.highSlice = highSlice
         self.lowSlice  = lowSlice
@@ -134,10 +135,13 @@ class DualLiveCandles(object):
 
         self.highLC = None
         self.lowLC  = None
+        self.complete_policy = complete_policy
+        if(not (complete_policy in ["high", "low", "both", "none"])):
+            raise ValueError("DualLiveCandles: complete_policy must be either high, low or both")
 
     def __iter__(self):
         if(self.highLC is None):
-            self.highLC = LiveCandle(self.looper,self.highSlice, self.initial, self.price, waitMax = 5.0)
+            self.highLC = LiveCandle(self.looper,self.highSlice, self.initial, self.price, waitMax = 5.0, require_complete = (self.complete_policy in ["high", "both"]))
 
         return self
 
@@ -146,8 +150,13 @@ class DualLiveCandles(object):
         if(self.highLC.lastGiven is None):
             return ( self.highLC, [] )
         else:
+            lt = self.highLC.lastGiven.time
+            if( self.complete_policy in ["high", "both"] ):
+                lt = INT_to_RFC3339( self.highSliceFreq + RFC3339_to_INT(lt))
+
             self.lowLC = LiveCandle(self.looper, self.lowSlice, self.initialLow, self.price,
-                                    waitMax = 5.0, since = self.highLC.lastGiven.time, duration = self.highSliceFreq)
+                                    waitMax = 5.0, since = lt, duration = self.highSliceFreq,
+                                    require_complete = (self.complete_policy in ["low", "both"]))
 
             return (self.highLC, self.lowLC )
 
