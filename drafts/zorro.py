@@ -237,8 +237,13 @@ for d in dataset:
                 if(pos1 is not None):
                     pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                     rvp = pos1.relevantPrice(c)
-                    logging.debug(pos1)
-                if(args.trace): args.debug("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
+                    import random
+                    if(random.randint(0,100)<=10):
+                        logging.info(pos1)
+                        logging.info("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
+                    else:
+                        logging.debug(pos1)
+                if(args.trace): logging.debug("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
 
                 continue
             else:
