@@ -64,7 +64,7 @@ class RiskManagementStrategy(object):
         for d in descs:
             d = d.lower()
             if(rgx.match(d)):
-                lt = float( rgx.match(d).group()[0])
+                lt = float( rgx.match(d).groups()[0])
                 rem = rgx.match(d).groups()[1]
                 mapped = {}
                 while(len(rem)>0):
