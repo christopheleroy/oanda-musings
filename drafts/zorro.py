@@ -123,7 +123,7 @@ counts = {}
 
 dataset =  None
 if(args.execute):
-    dataset = getLiveCandles(looper, args.depth, slices[0], slices[1])
+    dataset = getLiveCandles(looper, args.depth+1, slices[0], slices[1])
 elif(args.dir is None):
     dataset = getBacktrackingCandles(looper, args.depth*args.drag, slices[0], slices[1], lowAheadOfHigh = not args.hal)
 else:
@@ -145,10 +145,12 @@ if(args.tzt):
     for pq in dataset:
         tt = []
         for x in pq[1]:
-            print "> {} -- {} ".format(x.time[10:19], time.time())
-            tt.append(x.time[10:19]);
+            zz = "*" if (x.complete) else "!"
+            print "> {} -- {} {}".format(x.time[10:19], time.time(), zz)
+            tt.append(x.time[10:19] + zz);
         print "; ".join(tt)
-        print ">> high: {} --- {} ".format(pq[0].next().time if(args.execute) else pq[0].time, time.time())
+        pq0 = pq[0].next() if(args.execute) else pq[0]
+        print ">> high: {} --- {} {}".format(pq0.time, time.time(), ("*" if(pq0.complete)else "!"))
     import sys
     sys.exit(99)
 
@@ -184,7 +186,7 @@ for d in dataset:
                     if(tryIt is not None):
                         logging.warning("Info position taken with id={}: {}".format(tryIt[1], tryIt[0]))
                     else:
-                        logging.critical("Unable to take position {} for various reasons".formaT(pos1))
+                        logging.critical("Unable to take position {} for various reasons".format(pos1))
                 else:
                     looper.positions.append(pos1)
             elif(todo=='close'):
