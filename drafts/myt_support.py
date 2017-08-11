@@ -105,8 +105,8 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
 
 def getLiveCandles(looper, depth, highSlice, lowSlice, price = "BA"):
     from livecandlehierarchy import DualLiveCandles
-
-    return DualLiveCandles(looper, highSlice, depth, lowSlice, price)
+    dlc =  DualLiveCandles(looper, highSlice, depth, lowSlice, price, complete_policy = "both")
+    return dlc;
 
 
 
@@ -264,12 +264,9 @@ class TradeLoop(object):
         for pos in self.findPositionsRaw():
             tradeIDs = (pos.long.tradeIDs if(pos.long.tradeIDs is not None)else pos.short.tradeIDs)
             if(tradeIDs is not None):
-                if(len(tradeIDs)==1):
-                    ppos = positionFactory.makeFromExistingTrade(self.mkCandlestickTemplate(), self.account, tradeIDs[0])
+                for tradeID in tradeIDs:
+                    ppos = positionFactory.makeFromExistingTrade(self.mkCandlestickTemplate(), self.account, tradeID)
                     freshPositions.append(ppos)
-                else:
-                    logging.warning("WARNING: too many tradeIDs for this position -- tough luck!")
-                    raise ValueError("too many trades for single position?")
             else:
                 logging.debug("(trade less position)")
 
@@ -386,6 +383,7 @@ class PositionFactory(object):
             logging.debug("status code:{}\nbody:{}".format(respTSL.status, respTSL.body))
             if(str(respTSL.status)=='201'):
                 time.sleep(float(wait)/1000.0)
+                looper.refreshPositions(True)
         else:
             raise RuntimeError("cannot call executeTrailingStop on a position that has not been entered/traded")
 
@@ -429,7 +427,7 @@ class PositionFactory(object):
 
             while(len(newTrades)==0):
                 time.sleep(wait/1000.0)
-                looper.refresh(True)
+                looper.refreshPositions(True)
                 newTrades = [ t for t in looper.account.trades if t.id not in prevTradeIDs and t.instrument == looper.instrumentName ]
                 if(len(newTrades)==0):
                     noMore -= 1
