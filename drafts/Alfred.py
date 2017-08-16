@@ -198,7 +198,6 @@ class TradeStrategy(object):
             rsiOKForSell= highRSI if(self.rsiMode == "+") else (lowRSI if(self.rsiMode=="-") else True)
 
             if(pos1 is None):
-                #if(args.debug): pdb.set_trace()
                 pipFactor = loopr.pipFactor
                 if(c.ask.o < self.askTrigger and  rsiOKForBuy ):
                     # it is low (and rsi is close to oversold), we should buy
@@ -254,7 +253,6 @@ class TradeStrategy(object):
                     return [ ("triggered", "take-position", 0.0, 0.0, rsi, pos1) ]
 
             elif(pos1 is not None):
-                # import pdb; pdb.set_trace()
                 reply = []
                 currentlyEngagedSize = reduce(lambda s,x: s + x.size , loopr.positions, 0)
                 for n in range(len(loopr.positions)):
