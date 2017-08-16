@@ -196,7 +196,7 @@ for d in dataset:
                 tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
                 counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
                 if(args.execute):
-                    looper.refresh(True)
+                    looper.refreshPositions(posMaker,True)
                 else:
                     money += benef*pos1.size
                     pos1Time,beforeCount = pos1.entryQuote.time, len(looper.positions)
