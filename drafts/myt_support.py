@@ -22,12 +22,12 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice, lowAheadOfHigh
     highKW = { "count": highCount, "price":"BA", "granularity":highSlice}
     lowKW  = { "price":"BA", "granularity":lowSlice}
 
-    xoff = 1 if(lowAheadOfHigh) else 0
+    xoff = 1 if(not lowAheadOfHigh) else 0
 
     logging.debug(highKW)
     highCandles = getSortedCandles(loopr, highKW)
     # when not lowAheadOfHigh starts with an empty backtracking list, otherwise starts with single high candle and no low candles
-    backtracking = [ (highCandles[0],[]) ] if(lowAheadOfHigh) else []
+    backtracking = [ (highCandles[0],[]) ] if(not lowAheadOfHigh) else []
     for i in range(len(highCandles)-xoff):
         a = highCandles[i]
         lowKW["fromTime"] = a.time
@@ -51,8 +51,8 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
         when lowAheadOfHigh is true, then all elements in L[n][1] have a time that is before L[n][0].
         When lowAheadOfHigh is false, then all elemetns in L[n+1][1] have a time that is before L[n][0]
         Example times for M15 vs M5 slices:
-        lowAheadOfHigh:  [ (01:15:00, [ 01:00:00, 01:05:00, 01:10:00 ] ]), (01:30:00, [01:15:00, 01:20:00, 01:25:00 ]), ...]
-        not lowAheadOfHigh: [ (01:15:00, [ 01:15:00, 01:20:00, 01:25:00 ] ]), (01:30:00, [01:30:00, 01:35:00, 01:40:00 ]), ...]"""
+        lowAheadOfHigh:  [ (01:15:00, [ 01:15:00, 01:20:00, 01:25:00 ] ]), (01:30:00, [01:30:00, 01:35:00, 01:40:00 ]), ...]
+        not lowAheadOfHigh: [ (01:15:00, [ 01:00:00, 01:05:00, 01:10:00 ] ]), (01:30:00, [01:15:00, 01:20:00, 01:25:00 ]), ...] """
 
     from candlecache import SliceRowIterator
     hIterator = SliceRowIterator(dir, looper.instrumentName, highSlice, since, till, looper.api)
@@ -68,9 +68,9 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
     hitime = highCandles[hi].time
     hntime = highCandles[hi+1].time
 
-    xoff = 1 if(lowAheadOfHigh) else 0
+    xoff = 1 if(not lowAheadOfHigh) else 0
 
-    if(lowAheadOfHigh):
+    if(not lowAheadOfHigh):
         yup = (highCandles[0], [])
         backtracking.append(yup)
 
@@ -94,7 +94,7 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
             else:
                 hntime = highCandles[hi+1].time
 
-    if(not lowAheadOfHigh):
+    if(lowAheadOfHigh):
         yup = ( highCandles[-1], pouch )
         backtracking.append(yup)
 
@@ -373,7 +373,7 @@ class PositionFactory(object):
             distance = self.nicepadding(distance, looper.displayPrecision)
             # price    = self.nicepadding(price, looper.displayPrecision)
             tslargs = {"tradeID": str(pos.tradeID), "distance":  distance }
-            loggin.debug(tslargs)
+            logging.debug(tslargs)
             respTSL = None
             if(pos.trailingStopLossOrderId is None):
                 respTSL = looper.api.order.trailing_stop_loss(looper.accountId,  **tslargs)
@@ -383,7 +383,7 @@ class PositionFactory(object):
             logging.debug("status code:{}\nbody:{}".format(respTSL.status, respTSL.body))
             if(str(respTSL.status)=='201'):
                 time.sleep(float(wait)/1000.0)
-                looper.refreshPositions(True)
+                looper.refreshPositions(self,True)
         else:
             raise RuntimeError("cannot call executeTrailingStop on a position that has not been entered/traded")
 
@@ -534,7 +534,7 @@ class Position(object):
             newDesiredDistance = round(mspread*okSpec[1],7)
             if(newDesiredDistance<minimumTrailingStopDistance): newDesiredDistance = minimumTrailingStopDistance
 
-            if(newDesiredDistance < self.trailingStopDesiredDistance):
+            if(newDesiredDistance < self.trailingStopDesiredDistance or self.trailingStopDesiredDistance<=0):
                 logging.info("new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance))
                 self.trailingStopDesiredDistance = newDesiredDistance
                 self.trailingStopNeedsReplacement = True
