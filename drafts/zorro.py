@@ -4,11 +4,17 @@ import oandaconfig
 import v20
 
 import Alfred
+import Bibari
 from myt_support import TradeLoop, trailSpecsFromStringParam, PositionFactory, \
                          getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles, getLiveCandles
 
 ## Setting PARAMETER PARSING:
 parser = argparse.ArgumentParser()
+parser.add_argument('--bibari', action='store_true')
+parser.add_argument('--ks', type=int, default=22, help='in Bibari, the #-periods for kijun')
+parser.add_argument('--ts', type=int, default=5, help='in Bibari, the #-periods for tenkan')
+parser.add_argument('--xos', type=int, default=5, help='in Bibari, number of period in the past to detect Kijun/Tenkan cross-over')
+
 parser.add_argument('--size', nargs='?', type=float, default=1000.0,
                     help="size of the transaction in units (default 1000, which is a micro-lot in most pairs)");
 parser.add_argument("--start", nargs='?', type=float, default=5000.0,
@@ -46,6 +52,8 @@ parser.add_argument('--sdf', default=0.3, type=float,
 parser.add_argument('--bf', default=20, type=float,
                     help="frequency of displaying the 'banner', ever n times the tick is displayed")
 parser.add_argument('--trace', action='store_true')
+parser.add_argument('--cfreq', default=10.0, type=float,
+                    help="frequency of showing current price / benefit/loss - default: 10 for 10%")
 parser.add_argument('--dir', type=str, help='candle-cache directory')
 parser.add_argument('--since', type=str, help="start simulation then, as RFC3339")
 parser.add_argument('--till', type=str, help="end simulation then, as RFC3339")
@@ -96,10 +104,16 @@ else:
 # pm may be used to invert the profit/sdf strategy - just to check in backtracking
 pm = -1 if(args.invert) else 1
 
-robot = Alfred.TradeStrategy(args.trigger*pm, args.profit, args.risk,
-               args.depth, args.select, args.size,
-               slices[0], slices[1],
-               args.rsi, args.sdf*pm, trailSpecs)
+
+if(args.bibari):
+    robot = Bibari.TradeStrategy(args.trigger, args.profit, args.risk, args.select, args.size,
+                                 args.ts, args.ks, args.xos,
+                                 slices[0], slices[1],trailSpecs)
+else:
+    robot = Alfred.TradeStrategy(args.trigger*pm, args.profit, args.risk,
+                   args.depth, args.select, args.size,
+                   slices[0], slices[1],
+                   args.rsi, args.sdf*pm, trailSpecs)
 
 # set the simulation booleans
 robot.simulation  = not args.execute
@@ -123,7 +137,8 @@ counts = {}
 
 dataset =  None
 if(args.execute):
-    dataset = getLiveCandles(looper, args.depth+1, slices[0], slices[1])
+    initDepth = (args.ks*3+args.ts+1) if(args.bibari) else (args.depth+1)
+    dataset = getLiveCandles(looper, initDepth, slices[0], slices[1])
 elif(args.dir is None):
     dataset = getBacktrackingCandles(looper, args.depth*args.drag, slices[0], slices[1], lowAheadOfHigh = not args.hal)
 else:
@@ -190,7 +205,7 @@ for d in dataset:
                 else:
                     looper.positions.append(pos1)
             elif(todo=='close'):
-                logging.warning( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); size={5}; RSI={3}".format(c.time,
+                logging.critical( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); size={5}; RSI={3}".format(c.time,
                                    event, benef, round(rsi,2), round(benefRatio,2), pos1.size))
                 # print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c))
                 tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
@@ -238,8 +253,8 @@ for d in dataset:
                     pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
                     rvp = pos1.relevantPrice(c)
                     import random
-                    if(random.randint(0,100)<=10):
-                        logging.info(pos1)
+                    if(random.randint(0,100)<=args.cfreq):
+                        logging.debug(pos1)
                         logging.info("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
                     else:
                         logging.debug(pos1)
