@@ -4,7 +4,6 @@ import argparse, re, pdb, time
 import oandaconfig
 import v20, csv
 
-import Alfred
 from myt_support import TradeLoop, trailSpecsFromStringParam, getSortedCandles, getBacktrackingCandles, PositionFactory
 
 parser = argparse.ArgumentParser()
