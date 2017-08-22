@@ -154,8 +154,10 @@ class DualLiveCandles(object):
             if( self.complete_policy in ["high", "both"] ):
                 lt = INT_to_RFC3339( self.highSliceFreq + RFC3339_to_INT(lt))
 
+            waitMax = 5.0 if(self.lowSliceFreq/5.0 < 5.0) else float(int(self.lowSliceFreq/5.0))
+            waitMin = 0.5 if(self.lowSliceFreq<30) else int(self.lowSliceFreq / 30.0)
             self.lowLC = LiveCandle(self.looper, self.lowSlice, self.initialLow, self.price,
-                                    waitMax = 5.0, since = lt, duration = self.highSliceFreq,
+                                    waitMin = waitMin, waitMax = waitMax, since = lt, duration = self.highSliceFreq,
                                     require_complete = (self.complete_policy in ["low", "both"]))
 
             return (self.highLC, self.lowLC )
