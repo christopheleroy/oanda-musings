@@ -236,7 +236,7 @@ class TradeLoop(object):
             selectedInstruments = filter(lambda p: p.name == self.instrumentName, instruments)
 
             if(len(selectedInstruments)==0):
-                raise ValueError("Select instrument not found for  account: " + args.instrumentName)
+                raise ValueError("Select instrument not found for  account: " + self.instrumentName)
             zInstrument = selectedInstruments[0]
         else:
             from candlecache import InstrumentCache, AccountCache
@@ -274,10 +274,13 @@ class TradeLoop(object):
         freshPositions.sort(lambda a,b: cmp(a.entryQuote.time, b.entryQuote.time))
         self.positions = freshPositions
 
-    def mkCandlestickTemplate(self, withMid = False):
+    def mkCandlestickTemplate(self, withMid = False, wTime = None):
         tmpl = {"ask":{"c":0,"o":0,"l":0,"h":0},"bid":{"c":0,"o":0,"l":0,"h":0}}
         if(withMid):
             tmpl["mid"] = {"c":0,"o":0, "l":0,"h":0}
+
+        if(wTime is not None):
+            tmpl["time"] = wTime
 
         return self.api.instrument.Candlestick.from_dict(tmpl, self.api)
 
@@ -541,6 +544,7 @@ class Position(object):
             if(self.trailingStopDistance is not None):
                 # then trailing stop is already engage, note a needed replacement only if trailingStopDistance is different than new distance, the moving stop value is taken care by the broker
                 self.trailingStopNeedsReplacement = (newDesiredDistance != round(self.trailingStopDistance,7))
+                logging.info("current trailing stop distance: {}, new desired distance:{}, replacement-needed:{}".format(self.trailingStopDistance, newDesiredDistance, self.trailingStopNeedsReplacement))
             return
 
 
@@ -662,10 +666,11 @@ class Position(object):
             delta = avgPrice - self.entryQuote.ask.o
             benefRatio = 100*delta/self.expGain
             lossRatio  = -100*delta/self.expLoss
-            holdRatio  = -benefRatio if(delta<0)else lossRatio
+            # whe losing, use lossRatio and make it negative
+            holdRatio  = -lossRatio if(delta<0)else benefRatio
 
             if(avgPrice < self.saveLoss ):
-                return ('save-loss', 'close', delta, -100*delta / self.expLoss)
+                return ('save-loss', 'close', delta, lossRatio)
             elif(avgPrice > self.takeProfit):
                 return ('take-profit', 'close', delta, benefRatio)
             elif(self.trailingStopValue is None and newStopValue is not None):
@@ -673,7 +678,7 @@ class Position(object):
             elif(self.trailingStopValue is not None and newStopValue is not None and round(newStopValue,7) != round(self.trailingStopValue,7)):
                 return ('trailing-stop', 'trailing-progress', delta,holdRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue>avgPrice):
-                delta = self.entryQuote.ask.o - self.trailingStopValue
+                delta = self.trailingStopValue - self.entryQuote.ask.o
                 return ('trailing-stop', 'close', delta, benefRatio)
 
         else:
@@ -688,9 +693,9 @@ class Position(object):
                 return ('save-loss', 'close', delta, lossRatio)
             elif(avgPrice < self.takeProfit ):
                 return ('take-profit', 'close', delta, benefRatio)
-            elif(self.trailingStopDesiredDistance>0.0 and avgPrice <= self.trailingStopTriggerPrice and self.trailingStopValue is None):
+            elif(newStopValue is not None and self.trailingStopValue is None):
                 return ('trailing-stop', 'trailing-stop', delta, holdRatio)
-            elif(self.trailingStopValue is not None and self.trailingStopValue-self.trailingStopDistance>avgPrice):
+            elif(self.trailingStopValue is not None and newStopValue is not None and round(newStopValue,7) != round(self.trailingStopValue,7)):
                 return ('trailing-stop', 'trailing-progress',delta,holdRatio)
             elif(self.trailingStopValue is not None and self.trailingStopValue < avgPrice):
                 delta = self.entryQuote.bid.o - self.trailingStopValue
