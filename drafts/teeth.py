@@ -18,6 +18,12 @@ class MovingQueue(object):
     def subscribes(self,fun):
         self.subscribers.append(fun)
 
+    def skip(self, val):
+        """ return True when the queue has a skipper set and this skipper say we should skip ... """
+        if(self.skipper is not None):
+            return self.elems>0 and self.skipper(self.elems[-1],val)
+        else:
+            return False
 
 
     def add(self,val):
@@ -38,7 +44,7 @@ class MovingQueue(object):
 
 
     def flush(self):
-        self.elemse = deque([])
+        self.elems = deque([])
 
     def full(self):
         return (len(self.elems)>=self.size)
@@ -66,6 +72,12 @@ class MovingQueue(object):
 
     def lastTwo(self):
         return (self.elems[-2], self.elems[-1])
+
+    def lastN(self,n):
+        n = len(self.elems) if(n>len(self.elems)) else n
+        return [ self.elems[i] for i in range(-n,0) ]
+        
+
 
     def fill(self, V, n):
         if(self.full()):
