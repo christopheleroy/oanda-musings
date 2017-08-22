@@ -29,7 +29,7 @@ class RiskManagementStrategy(object):
                     self.warningSize+=1
                 else:
                     c = currentQuote
-                    rsi = rsiMaker.RSI
+                    rsi = None if(self.rsiAlwaysOK and rsiMaker is None) else rsiMaker.RSI
                     size = parentPos.size * self.sizeFactor
                     if(size>sizeMax):
                         logging.warning("risk-management position, size {} reduced to {}, because of max-size limit".format(size, sizeMax))
@@ -183,6 +183,27 @@ class TradeStrategy(object):
     def digestLowCandle(self,candle):
         self.rsiLowMaker.add(candle)
 
+    def riskManagementDecisions(self, candle, rsi, loopr, posMaker):
+       """ apply classic risk management rules on current position to provide "decisions" based on current candle """
+       reply = []
+       trailStart = self.trailSpecs[0][0]
+       trailDistance = self.trailSpecs[0][1]
+       currentlyEngagedSize = reduce(lambda s,x: s + x.size , loopr.positions, 0)
+       for n in range(len(loopr.positions)):
+           posN = loopr.positions[n]
+           posN.calibrateTrailingStopLossDesireForSteppedSpecs(candle,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
+           event,todo,benef, benefRatio = posN.timeToClose(candle, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
+           if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
+               sizeMax = self.maxEngagedSize - currentlyEngagedSize
+               management = self.riskManagement[n].watchTrigger(self.mspread, benef, candle,
+                                                   self.rsiLowMaker, posN, posMaker,
+                                                   trailStart, trailDistance, sizeMax)
+               if(management is not None):
+                   reply.append(management)
+
+           reply.append( (event,todo,benef,benefRatio, rsi, posN) )
+       return reply
+
 
     def decision(self, loopr, posMaker, logMsg=True):
         rsi = 50.0
@@ -253,22 +274,7 @@ class TradeStrategy(object):
                     return [ ("triggered", "take-position", 0.0, 0.0, rsi, pos1) ]
 
             elif(pos1 is not None):
-                reply = []
-                currentlyEngagedSize = reduce(lambda s,x: s + x.size , loopr.positions, 0)
-                for n in range(len(loopr.positions)):
-                    posN = loopr.positions[n]
-                    posN.calibrateTrailingStopLossDesireForSteppedSpecs(c,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
-                    event,todo,benef, benefRatio = posN.timeToClose(c, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
-                    if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
-                        sizeMax = self.maxEngagedSize - currentlyEngagedSize
-                        management = self.riskManagement[n].watchTrigger(self.mspread, benef, c,
-                                                            self.rsiLowMaker, posN, posMaker,
-                                                            trailStart, trailDistance, sizeMax)
-                        if(management is not None):
-                            reply.append(management)
-
-                    reply.append( (event,todo,benef,benefRatio, rsi, posN) )
-                return reply
+                return self.riskManagementDecisions(c,rsi, loopr, posMaker)
                 #return event, todo,benef,benefRatio, rsi, pos1
         else:
             return [( "none", "wait", 0.0, 0.0, rsi, None)]
