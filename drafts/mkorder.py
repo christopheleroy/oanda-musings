@@ -7,16 +7,17 @@ from myt_support import PositionFactory, TradeLoop, trailSpecsFromStringParam
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--size', nargs='?', type=float, default=1000.0);
+parser.add_argument('--size', nargs='?', type=float);
 parser.add_argument('--select', nargs='?')
 parser.add_argument('--sell', action='store_true')
-parser.add_argument('--sl', type=float)
-parser.add_argument('--tsl', type=float)
+parser.add_argument('--sl', type=float, help='stop-loss value when entering the trade or when modifying an existing trade (--id)')
+parser.add_argument('--tsl', type=float, help='when modifying an existing trade, provide the trailing-stop-loss value')
 parser.add_argument('--distance', type=float, default=None)
-parser.add_argument('--tp', type=float)
-parser.add_argument('--list', action='store_true')
-parser.add_argument('--id', nargs='?')
+parser.add_argument('--tp', type=float, help='take-profit value when entering the trade or when modifying an existing trade (--id)')
+parser.add_argument('--list', action='store_true', help='list current positions for the selected pair')
+parser.add_argument('--id', nargs='?', help='point to a specific trade (position or order?) for modification')
 parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--close', action='store_true')
 parser.add_argument('--trail', nargs='?', default='none')
 
 
@@ -27,6 +28,7 @@ cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 mker = PositionFactory(50,5)
 onceOnly = TradeLoop(api, cfg.active_account, args.select)
+
 onceOnly.initialize(mker)
 
 
@@ -58,6 +60,13 @@ elif(args.id is not None):
     poss = filter(lambda p: p.tradeID == args.id, onceOnly.positions)
     if(len(poss)>0):
         if(args.verbose): print poss[0]
+        if(args.close):
+            if(args.size is None):
+                respCL = onceOnly.api.trade.close(cfg.active_account, args.id)
+            else:
+                respCL = onceOnly.api.trade.close(cfg.active_account, args.id, units=str(args.size))
+
+            print "CLOSE order{}\n{}".format(respCL.status, respCL.body)
         if(args.tsl is not None):
             if(args.distance is None): args.distance = 5
             distance = args.distance*10**(onceOnly.instrument.pipLocation) if(poss[0].trailingStopLossOrderId is None and args.distance>0) else (poss[0].trailingStopDistance)
@@ -85,6 +94,9 @@ elif(args.id is not None):
     import sys;sys.exit(0)
 
 
+if(args.size is None or args.sl is None or args.tp is None):
+    print "Missing: size, sl or tp"
+    import sys;sys.exit(100)
 
 pos = mker.make(not args.sell, candles[-1], args.size, args.sl, args.tp)
 
