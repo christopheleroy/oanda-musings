@@ -210,6 +210,7 @@ class TradeStrategy(object):
         trailStart = self.trailSpecs[0][0]
         trailDistance = self.trailSpecs[0][1]
         if(self.queue.full()):
+            if(loopr.refreshIsDue()): loopr.refreshPositions(posMaker)
             pos1 = None if(len(loopr.positions)==0) else loopr.positions[0]
             c = self.rsiLowMaker.mq.last()
             rsi = self.rsiLowMaker.RSI

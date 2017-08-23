@@ -291,10 +291,13 @@ class TradeLoop(object):
 
         return filter(lambda p: p.instrument == me, self.account.positions)
 
+    def refreshIsDue(self):
+        return time.time() - self.accountTime > self.freshFrequency_ms/1000.0
+
     def refresh(self, force=False, raiseX=True):
         if(self.simulation): return
 
-        if(force or time.time() - self.accountTime > self.freshFrequency_ms/1000.0):
+        if(force or self.refreshIsDue()):
             try:
                 whenT = time.time()
                 accountResp = self.api.account.get(self.accountId)

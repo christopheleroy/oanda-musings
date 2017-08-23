@@ -71,9 +71,9 @@ class TradeStrategy(object):
             return [ ("none", "wait", 0.0, 0.0, 0, None)]
 
         nah=False
-        hSig, hStr, hDepth, hPrice  = self.highIchimoku.pronostic(self.xoverSize)
-        lSig, lStr, lDepth, lPrice  = self.lowIchimoku.pronostic(self.xoverSize)
-        logging.debug("High: {}, Low: {} ".format( (hSig,hStr,hPrice), (lSig,lStr,lPrice)))
+        hSig, hStr, hDepth, hPrice, hxoTime  = self.highIchimoku.pronostic(self.xoverSize)
+        lSig, lStr, lDepth, lPrice, lxoTime  = self.lowIchimoku.pronostic(self.xoverSize)
+        logging.debug("High: {}, Low: {} ".format( (hSig,hStr,hPrice,hxoTime), (lSig,lStr,lPrice,lxoTime)))
 
         # if(hSig=='SELL' and lSig=='BUY' and hStr == 'weak' and lStr == 'weak'):
         #     import pdb; pdb.set_trace()
@@ -112,6 +112,8 @@ class TradeStrategy(object):
             lScore = 0
             hScore = 0
 
+
+        if(loopr.refreshIsDue()): loopr.refreshPositions(posMaker)
         if(len(loopr.positions)==0):
             if(lScore+hScore>self.trigger and not nah):
                 trailStart = self.trailSpecs[0][0]
