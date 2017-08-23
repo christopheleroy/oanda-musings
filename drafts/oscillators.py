@@ -297,10 +297,10 @@ class IchimokuCalculation(object):
                                     strength = "strong" if(x.isBelowCloud(cop)) else ("medium" if(x.isInCloud(cop)) else "weakish")
                                 else:
                                     strength = "weak" if(x.isAboveCloud(cop)) else "weird"
-                            return (signal, strength, itCnt, cop)
+                            return (signal, strength, itCnt, cop, x.time)
                             next_over_k = tok
                 next_x = x
 
-            return ("none", "n/a", depth, None)
+            return ("none", "n/a", depth, None,None)
         else:
-            return ("none", "n/a", 0, None)
+            return ("none", "n/a", 0, None,None)
