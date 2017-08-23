@@ -214,7 +214,7 @@ def queueSecretSauce(queue, trigger=3,sdf=0.3):
 
 
 class TradeLoop(object):
-    def __init__(self, api, accountId, instrumentName, freshFrequency_ms=1200000.0):
+    def __init__(self, api, accountId, instrumentName, freshFrequency_ms=120000.0):
         self.api = api
         self.accountId = accountId
         self.instrumentName = instrumentName
