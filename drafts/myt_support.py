@@ -336,7 +336,7 @@ class PositionFactory(object):
         sl0 = _find_(lambda t: t.type == 'STOP_LOSS', orders)
         tsl0 = _find_(lambda t: t.type == 'TRAILING_STOP_LOSS', orders)
         if(trade is not None and tp0 is not None and sl0 is not None):
-            iu = float(trade.initialUnits)
+            iu = float(trade.currentUnits)
             pr = float(trade.price)
             forBUY = iu>0
             size = np.abs(iu)
