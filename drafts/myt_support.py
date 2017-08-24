@@ -393,6 +393,48 @@ class PositionFactory(object):
         else:
             raise RuntimeError("cannot call executeTrailingStop on a position that has not been entered/traded")
 
+    def executeClose(self, looper, pos, size=None, wait=1200, noMore=5):
+        """ when the close executes, this returns a pair (position, trade-id).
+            If the position is actually closed, then the position is returned as None, so what is returned is (None, trade-id).
+            If the close fails, None is returned """
+        kwargs = {}
+        if(size is not None):
+            fsize = float(size)
+            if(pos.size>fsize):
+                kwargs["units"] = str(size)
+            else:
+                raise ValueError("Cannot use executeClose to with a size greater than current position: {} is great than current {}".format(size, pos.size))
+
+        response = looper.api.trade.close(looper.accountId, pos.tradeID, **kwargs)
+        if(response.status.code == "200" or response.status.code ==200):
+            logging.debug("Closing trade {} with {} was successful".format(pos.tradeID, kwargs))
+        else:
+            logging.critical("Unable to close trade: {}\n{}".format(response.status, response.body))
+            return None
+
+
+        myTrade = None
+        while(myTrade is None and noMore>0):
+            time.sleep(wait/1000.0)
+            looper.refreshPositions(self, force=True)
+            myTrades = filter(lambda t: t.id == pos.tradeID, looper.account.positions)
+            if(len(myTrades)>0):
+                if(float(myTrades[0].currentUnits) < float(pos.size)):
+                    myTrade = myTrades[0]
+            else:
+                if(size is None):
+                    # the position is not on the account (not open, but gone, closed) and we didn't pass a size, so it is all good.
+                    break
+                else:
+                    noMore -= 1
+
+        if(myTrade is not None):
+            newPosVersion = self.makeFromExistingTrade(pos.entryQuote, looper.account, myTrade.id)
+            return newPosVersion, myTrade.id
+        else:
+            return None, pos.tradeID
+
+
 
 
     def executeTrade(self, looper, pos,wait=1200,noMore=5):
@@ -648,7 +690,7 @@ class Position(object):
 
 
 
-    def timeToClose(self, currentQuote, rsiLow, rsiHigh):
+    def timeToClose(self, currentQuote, strategyMaker):
         """is it time to close (take-profit, save-loss, stop-loss triggered), or update stop-loss-value?"""
         avgPrice = self.relevantPrice(currentQuote)
         newStopValue = self.expectedTrailingStopValue(currentQuote)

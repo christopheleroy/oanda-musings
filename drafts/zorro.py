@@ -36,7 +36,7 @@ parser.add_argument('--profit', nargs='?', type=float, default=3.0,
 parser.add_argument('--invert', action='store_true',
                     help="invert the logic on trigger/sdf for when to elect to take a position")
 parser.add_argument('--trail', nargs='?', default='1:7,2:4,3:3,5:2,10:1',
-                    help="specify the trailing-stop approache (warning: there is a default value, so better specify this parameter)")
+                    help="specify the trailing-stop approach (warning: there is a default value, so better specify this parameter)")
 parser.add_argument('--rsi', nargs='?', default="14:31-71",
                     help="RSI pattern, e.g 14:35-75, means use 14 intervals to compute RSI and consider oversold when < 35 and overbought>=75)")
 parser.add_argument('--after', nargs='?', type=int, default=0)
@@ -122,15 +122,20 @@ looper.simulation = robot.simulation
 robot.initialize()
 robot.rsiMode = args.rsimode
 if(args.insurance):
-    robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance)
-    robot.maxEngagedSize = args.msm * args.size
-    logging.info("Risk Managment: {} specs parsed, max engage size will be : {}".format(len(robot.riskManagement), robot.maxEngagedSize))
+    rmArgs={}
     if(args.rrsi == 'ok'):
         logging.info("Risk Management will have 'rsiAlwaysOK' set to True")
-        for rm in robot.riskManagement: rm.rsiAlwaysOK = True
+        rmArgs['rsiAlwaysOK'] = True
+        if(args.bibari):
+            rmArgs['alwaysGood'] = True
     elif(args.rrsi=='inverted'):
         logging.info("Risk Management will have rsiInverted set to True")
-        for rm in robot.riskManagement: rm.rsiInverted = True
+        rmArgs['rsiInverted'] = True
+
+
+    robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance,robot,rmArgs)
+    robot.maxEngagedSize = args.msm * args.size
+    logging.info("Risk Managment: {} specs parsed, max engage size will be : {}".format(len(robot.riskManagement), robot.maxEngagedSize))
 
 counts = {}
 
@@ -276,7 +281,7 @@ for d in dataset:
 
 
 
-logging.warning( "Money: {}".format(money) )
-logging.warning("First time: {}  -- Last time: {}".format(firstTime,lastTime))
+logging.critical( "Money: {}".format(money) )
+logging.critical("First time: {}  -- Last time: {}".format(firstTime,lastTime))
 for x in counts.keys():
     logging.warning("{}: {}".format(x, counts[x]))

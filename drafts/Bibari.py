@@ -3,6 +3,43 @@ import logging
 from Alfred import RiskManagementStrategy
 from oscillators import IchimokuCalculation
 
+
+
+class IchimokuSentimentAnalyzer(object):
+    def __init__(self,strongRequired = True, consistentRequired=False, alwaysGood = False):
+        self.strongRequired = strongRequired
+        self.consistentRequired = consistentRequired
+        self.alwaysGood = alwaysGood
+
+    def confirm(self, forBUY, ichiMaker):
+        okSET = ["strong"] if(self.strongRequired) else ["strong", "medium"]
+        okVALS = ["BUY", "SELL"]
+
+        if(self.alwaysGood):
+            return True, ichiMaker, ""
+
+        if(self.consistentRequired and (ichiMaker[0] in okVALS and ichiMaker[0] in okVALS and ichiMaker[0]!=ichiMaker[1])):
+            # when consistent required, we can't have one say BUY and the other SELL and count this as a good sentiment
+            return False, ichiMaker, "inconsistent signals"
+
+        try:
+            yeepey = (True, ichiMaker, "")
+            if(forBUY):
+                if(ichiMaker[0] == 'BUY' and ichiMaker[1] in okSET): return yeepey
+                if(ichiMaker[2] == 'BUY' and ichiMaker[3] in okSET): return yeepey
+            else:
+                if(ichiMaker[0] == 'BUY' and ichiMaker[1] in okSET): return yeepey
+                if(ichiMaker[2] == 'BUY' and ichiMaker[3] in okSET): return yeepey
+        except:
+            print ichiMaker
+            raise
+
+        return False, ichiMaker, "not decisive"
+
+
+
+
+
 class TradeStrategy(object):
 
     def __init__(self,trigger, profit, risk, select, size,tenkanSize, kijunSize, xoverSize, highSlice, lowSlice,trailSpecs):
@@ -39,11 +76,16 @@ class TradeStrategy(object):
         self.mspread = self.lowIchimoku.tenkanMedianSpread
 
 
-    def riskManagementDecisions(self, candle, loopr, hSig, lSig, lhScore, posMaker):
+    def makeSentimentAnalyzer(self, rmArgs):
+        return IchimokuSentimentAnalyzer(**rmArgs)
+
+
+    def riskManagementDecisions(self, candle, loopr, ichiMaker, posMaker):
        """ apply classic risk management rules on current position to provide "decisions" based on current candle """
        reply = []
        trailStart = self.trailSpecs[0][0]
        trailDistance = self.trailSpecs[0][1]
+       hSig,hStr,lSig,lStr,lhScore = ichiMaker
        currentlyEngagedSize = reduce(lambda s,x: s + x.size , loopr.positions, 0)
        for n in range(len(loopr.positions)):
            posN = loopr.positions[n]
@@ -52,11 +94,11 @@ class TradeStrategy(object):
            wawa = [ hSig, lSig ]
            rsiLow = ('BUY' in wawa ) and not ('SELL' in wawa)
            rsiHigh = ('SELL' in wawa) and not ('BUY' in wawa)
-           event,todo,benef, benefRatio = posN.timeToClose(candle, rsiLow, rsiHigh)
+           event,todo,benef, benefRatio = posN.timeToClose(candle, ichiMaker)
            if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
                sizeMax = self.maxEngagedSize - currentlyEngagedSize
                management = self.riskManagement[n].watchTrigger(self.lowIchimoku.kijunMedianSpread, benef, candle,
-                                                   None, posN, posMaker,
+                                                   ichiMaker, posN, posMaker,
                                                    trailStart, trailDistance, sizeMax)
                if(management is not None):
                    reply.append(management)
@@ -136,10 +178,10 @@ class TradeStrategy(object):
                     return [ ("none", "wait", 0.0, 0.0, lScore+hScore, None ) ]
                 else:
                     logging.critical("High: {}, Low: {}".format( (hSig,hStr,hScore), (lSig, lStr, lScore) ) )
-                    logging.critical("Taking position: {}".format(pos1))
+                    logging.critical("Recommend taking position: {}".format(pos1))
                     return  [ ("triggered", "take-position", 0.0, 0.0, lScore+hScore, pos1) ]
             return [ ("none", "wait", 0.0, 0.0, 0, None) ]
 
         else:
             c = self.lowIchimoku.mq.last()
-            return self.riskManagementDecisions(c, loopr, hSig, lSig, lScore+hScore,posMaker)
+            return self.riskManagementDecisions(c, loopr, (hSig, hStr, lSig, lStr, lScore+hScore),posMaker)

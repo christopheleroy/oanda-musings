@@ -2,92 +2,145 @@
 import logging
 
 
-class RiskManagementStrategy(object):
-    def __init__(self, lossTrigger, sizeFactor, reRisk, profit):
+class RSISentimentAnalyzer(object):
+    def __init__(self, rsiAlwaysOK = False, rsiInverted=False):
+        self.rsiAlwaysOK = rsiAlwaysOK
+        self.rsiInverted = rsiInverted
+
+    def confirm(self, forBUY, rsiMaker):
+
+        rsiSwitch = forBUY if(not self.rsiInverted) else not forBUY
+        rsiOK = self.rsiAlwaysOK or (rsiSwitch and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI>rsiMaker.oscHigh*0.8 and not rsiSwitch)
+        if(rsiOK):
+            return True, rsiMaker.RSI, ""
+        else:
+            return False, rsiMaker.RSI, ("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
+
+
+class RiskManagementStrategyBasicOption(object):
+    def __init__(self, lossTrigger, sizeFactor, reRisk, profit, flipped=False, sentimentAnalyzer=None):
+
+        self.lossTrigger = lossTrigger
         self.lossTrigger = lossTrigger
         self.sizeFactor  = sizeFactor
         self.reRisk      = reRisk
         self.profit      = profit
-        self.warningsRSI  = 0
+        self.flipped     = flipped
+        if(sentimentAnalyzer is None):
+            logging.debug("risk-management-basic-option with lossTrigger={}, sizeFactor={}, profit={}, re-risk={}".format(lossTrigger, sizeFactor, profit, reRisk));
+            self.sentimentAnalyzer = RSISentimentAnalyzer()
+        else:
+            logging.debug("risk-management-basic-option with lossTrigger={}, sizeFactor={}, profit={}, re-risk={} and specific sentiment-analyzer".format(lossTrigger, sizeFactor, profit, reRisk));
+            self.sentimentAnalyzer = sentimentAnalyzer
+
+
+    def triggered(self, mspread, currentDelta, currentQuote):
+        return  currentDelta < - self.lossTrigger*mspread
+
+    def confirm(self, forBUY, strategyMaker):
+        return self.sentimentAnalyzer.confirm(forBUY, strategyMaker)
+
+
+class RiskManagementStrategy(object):
+    def __init__(self):
+        self.warningsSentiment  = 0
         self.warningsSize = 0
-        self.rsiAlwaysOK = False
-        self.rsiInverted = False
+
+        self.options = []
+
+
+    def _addOption(self,option):
+        self.options.append(option)
+
 
     def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance,sizeMax):
-        if(currentDelta < -mspread*self.lossTrigger):
+        for opt in self.options:
+            if(opt.triggered(mspread, currentDelta, currentQuote)):
                 # so, supposed parentPos is in loss, we're taking a position that is going to be a buy
                 # at a lower value than parent pos to hope to get a little less loss ...
                 # but we won't BUY at an overbought position
-                rsiSwitch = parentPos.forBUY if(not self.rsiInverted) else not parentPos.forBUY
-                rsiOK = self.rsiAlwaysOK or (rsiSwitch and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI > rsiMaker.oscHigh*0.8 and not rsiSwitch)
-                if(not rsiOK):
-                    if(self.warningsRSI < 3 or self.warningsRSI % 3 == 0):
-                        logging.warning("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
-                    self.warningsRSI +=1
+                feelingOK, val, msg = opt.confirm(parentPos.forBUY, rsiMaker)
+                if(not feelingOK):
+                    if(self.warningsSentiment < 3 or self.warningsSentiment % 3 == 0):
+                        logging.warning(msg)
+                    self.warningsSentiment +=1
                 elif(sizeMax<=0):
                     if(self.warningsSize<2 or self.warningsSize % 30 == 0): logging.warning("Risk-management position is not attempted because engaged size was reached")
                     self.warningSize+=1
                 else:
                     c = currentQuote
-                    rsi = None if(self.rsiAlwaysOK and rsiMaker is None) else rsiMaker.RSI
-                    size = parentPos.size * self.sizeFactor
+                    size = parentPos.size * opt.sizeFactor
                     if(size>sizeMax):
                         logging.warning("risk-management position, size {} reduced to {}, because of max-size limit".format(size, sizeMax))
                         size=sizeMax
 
                     self.warningsSize = 0
-                    self.warningsRSI  = 0
-                    relevantRisk = (c.bid.o - self.reRisk * mspread) if(parentPos.forBUY) else (c.ask.o + self.reRisk*mspread)
-                    relevantProfit = (c.ask.o + self.profit * mspread) if (parentPos.forBUY) else (c.bid.o - self.profit*mspread)
+                    self.warningsSentiment  = 0
+                    relevantRisk = (c.bid.o - opt.reRisk * mspread) if(parentPos.forBUY) else (c.ask.o + opt.reRisk*mspread)
+                    relevantProfit = (c.ask.o + opt.profit * mspread) if (parentPos.forBUY) else (c.bid.o - opt.profit*mspread)
                     trailStopTrigger = (c.ask.o + trailStart * mspread) if(parentPos.forBUY) else (c.bid.o - trailStart*mspread)
                     ##
                     pos2 = posMaker.make(parentPos.forBUY, currentQuote,
                                           size, relevantRisk, relevantProfit,
                                           trailStopTrigger, trailDistance*mspread)
-                    logging.warning("{} - taking risk-management position ({}) size={}, at {} with take-profit:{} and save-loss:{} (RSI:{})".format(
+                    logging.critical("{} - recommend taking risk-management position ({}) size={}, at {} with take-profit:{} and save-loss:{} (RSI:{})".format(
                                   currentQuote.time, ("BUY" if(parentPos.forBUY) else "SELL"), size,
                                   (c.bid.o if(parentPos.forBUY) else c.ask.o),
-                                  relevantProfit, relevantRisk, rsi))
-                    return ("risk-mgt-trigger", "take-position", 0.0, 0.0, rsi, pos2)
+                                  relevantProfit, relevantRisk, val))
+                    return ("risk-mgt-trigger", "take-position", 0.0, 0.0, val, pos2)
 
 
 
 
 
     @staticmethod
-    def parse(desc, bark=""):
+    def parse(desc, robot, rmArgs= {}, bark=""):
         import re
         descs = desc.split(",")
         them = []
-        rgx = re.compile(r"(\d+):([xpr\d\.]+)$")
-        sgx = re.compile(r"(\d+\.?\d*)([xpr])")
-        for d in descs:
-            d = d.lower()
-            if(rgx.match(d)):
-                lt = float( rgx.match(d).groups()[0])
-                rem = rgx.match(d).groups()[1]
-                mapped = {}
-                while(len(rem)>0):
-                    bam = sgx.match(rem)
-                    if(bam is None):
-                        raise ValueError("{} - cannot parse {} as risk-management specs, fails on {}".format(bark, d, rem))
-                    xrp = bam.groups()[1]
-                    nnn = float(bam.groups()[0])
-                    if(nnn<=0):
-                        raise ValueErorr("{} - cannot use zero in risk management specs, fails on {}". format(bark,ren))
-                    if(mapped.has_key(xrp)):
-                        raise ValueError("{} - cannot specify {} multiply time in risk-mgt-specs, fails on {}".format(bark, xrp, rem))
-                    mapped[xrp]=nnn
-                    st = bam.start()
-                    en = bam.end()
-                    rem = rem[0:st] + rem[en:]
-                sf = mapped['x'] if(mapped.has_key('x')) else 2.0
-                pr = mapped['p'] if(mapped.has_key('p')) else (lt/sf)
-                ri = mapped['r'] if(mapped.has_key('r')) else (lt/sf)
-                them.append( RiskManagementStrategy(lt, sf, ri, pr) )
-                logging.info("parsed risk-management-spec {} as lossTrigger={}, sizeFactor={}, profit={}, re-risk={}".format(d, lt, sf, pr, ri))
-            else:
-                raise ValueError("{} - cannot parse risk-management spec {}".format(bark,d))
+        rgx = re.compile(r"^(\d+.?\d*|sr\d+.?\d*):([fxpr\d\.]+)$")
+        sgx = re.compile(r"(\d+\.?\d*)([fxpr])")
+        for dx in descs:
+            dx = dx.lower()
+            alternatives = dx.split("/")
+            rmx_dx = RiskManagementStrategy()
+            for d in alternatives:
+                if(rgx.match(d)):
+                    sr = False # support and resistance?
+                    lt_x = rgx.match(d).groups()[0]
+                    if(lt_x.startswith("sr")):
+                        lt_x = lt_x[2:]
+                        sr=True
+                    lt = float(lt_x)
+                    rem = rgx.match(d).groups()[1] # rem: remaining string to parse (substring of d)
+                    mapped = {}
+                    while(len(rem)>0):
+                        bam = sgx.match(rem)
+                        if(bam is None):
+                            raise ValueError("{} - cannot parse {} as risk-management specs, fails on {}".format(bark, d, rem))
+                        xrp = bam.groups()[1]
+                        nnn = float(bam.groups()[0])
+                        if(nnn<=0):
+                            raise ValueError("{} - cannot use zero in risk management specs, fails on {}". format(bark,ren))
+                        if(mapped.has_key(xrp)):
+                            raise ValueError("{} - cannot specify {} multiply time in risk-mgt-specs, fails on {}".format(bark, xrp, rem))
+                        mapped[xrp]=nnn
+                        st = bam.start()
+                        en = bam.end()
+                        rem = rem[0:st] + rem[en:]
+                    sf = mapped['x'] if(mapped.has_key('x')) else (mapped['f'] if(mapped_as_key('f')) else 2.0)
+                    flipped = mapped.has_key('f')
+                    if(mapped.has_key('f') and mapped.has_key('x')):
+                        raise ValueError("{} - parsing {}, cannot specify both x (extend by factor) and f (flip trade)".format(bark, rem))
+                    pr = mapped['p'] if(mapped.has_key('p')) else (lt/sf)
+                    ri = mapped['r'] if(mapped.has_key('r')) else (lt/sf)
+                    sal = robot.makeSentimentAnalyzer(rmArgs)
+                    rmx_dx._addOption( RiskManagementStrategyBasicOption( lt, sf, ri, pr, flipped, sal) )
+                    logging.info("parsed risk-management-option {} as lossTrigger={}, sizeFactor={}, profit={}, re-risk={}".format(d, lt, sf, pr, ri))
+                else:
+                    raise ValueError("{} - cannot parse risk-management spec {}".format(bark,d))
+            logging.info("adding risk-management-spec made of {} option{} (from :{})".format(len(rmx_dx.options), ("s" if(len(rmx_dx.options)>1) else ""), dx))
+            them.append( rmx_dx )
 
         return them
 
@@ -138,7 +191,9 @@ class TradeStrategy(object):
         self.rsiLowMaker.setSkipper(skipIdenticalCandles)
 
 
-
+    def makeSentimentAnalyzer(self, rmArgs):
+        """ for Rollover / Insurance : sentiment analyzer """
+        return RSISentimentAnalyzer(**rmArgs)
 
     def digestHighCandle(self, candle):
         self.queue.add(candle)
@@ -192,7 +247,7 @@ class TradeStrategy(object):
        for n in range(len(loopr.positions)):
            posN = loopr.positions[n]
            posN.calibrateTrailingStopLossDesireForSteppedSpecs(candle,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
-           event,todo,benef, benefRatio = posN.timeToClose(candle, self.rsiLowMaker.isLow(), self.rsiLowMaker.isHigh())
+           event,todo,benef, benefRatio = posN.timeToClose(candle, self.rsiLowMaker)
            if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
                sizeMax = self.maxEngagedSize - currentlyEngagedSize
                management = self.riskManagement[n].watchTrigger(self.mspread, benef, candle,
