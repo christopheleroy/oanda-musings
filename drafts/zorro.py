@@ -225,6 +225,37 @@ for d in dataset:
                         raise RuntimeError("failure/bug in removing expected closed position")
                     logging.warning("Money: {}".format(money))
 
+            elif(todo=="flip-position"):
+                # when flip-position, the pos1 item is actual a pair of positions. (newer position, closing position)
+                closePos = pos1[1]
+                pos1 = pos1[0]
+
+                logging.critical("{} -- Flipping position with event {} - with impact {} ({}%)".format(c.time, event, benef, round(benefRatio,2)))
+                tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
+                counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
+
+                if(args.execute):
+                    tryIt = posMaker.executeTrade(looper, pos1)
+                    if(tryIt is not None):
+                        logging.warning("Info position taken with id={}: {}".format(tryIt[1], tryIt[0]))
+                    else:
+                        logging.critical("Unable to take position {} for various reasons".format(pos1))
+                else:
+                    # with the oanda API, to flip from 1lot BUY to a 2lot SELL, we push a  3lot SELL through the API
+                    # in simulation, the robot will send a 3lot SELL, so let's account for it correctly here.
+                    newPosArray = filter(lambda p: p.entryQuote.time != closePos.entryQuote.time, looper.positions)
+                    if(len(newPosArray) != len(looper.positions)-1):
+                        raise RuntimeError("bug - unable to remove closing postion (in simulation)")
+                    pos1.size -= closePos.size
+                    if(pos1.size<0):
+                        raise RuntimeError("bug - position size rendered negative...")
+                    elif(pos1.size>0):
+                        newPosArray.append(pos1)
+                        logging.warning("Position flip was same as closing position...")
+                    money += benef*closePos.size
+                    looper.positions = newPosArray
+
+
             elif(todo=='trailing-stop'):
                 logging.info("{} --Time to set trailing stop - {}".format(c.time,pos1.relevantPrice(c)))
                 if(args.execute):

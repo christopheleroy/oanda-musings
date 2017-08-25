@@ -24,12 +24,11 @@ class IchimokuSentimentAnalyzer(object):
 
         try:
             yeepey = (True, ichiMaker, "")
-            if(forBUY):
-                if(ichiMaker[0] == 'BUY' and ichiMaker[1] in okSET): return yeepey
-                if(ichiMaker[2] == 'BUY' and ichiMaker[3] in okSET): return yeepey
-            else:
-                if(ichiMaker[0] == 'BUY' and ichiMaker[1] in okSET): return yeepey
-                if(ichiMaker[2] == 'BUY' and ichiMaker[3] in okSET): return yeepey
+            needed = "BUY" if(forBUY) else "SELL"
+
+            if(ichiMaker[0] == needed and ichiMaker[1] in okSET): return yeepey
+            if(ichiMaker[2] == needed and ichiMaker[3] in okSET): return yeepey
+
         except:
             print ichiMaker
             raise
@@ -96,10 +95,9 @@ class TradeStrategy(object):
            rsiHigh = ('SELL' in wawa) and not ('BUY' in wawa)
            event,todo,benef, benefRatio = posN.timeToClose(candle, ichiMaker)
            if( n +1 == len(loopr.positions) and len(self.riskManagement)>n and event == 'hold'):
-               sizeMax = self.maxEngagedSize - currentlyEngagedSize
                management = self.riskManagement[n].watchTrigger(self.lowIchimoku.kijunMedianSpread, benef, candle,
                                                    ichiMaker, posN, posMaker,
-                                                   trailStart, trailDistance, sizeMax)
+                                                   trailStart, trailDistance, currentlyEngagedSize, self.maxEngagedSize)
                if(management is not None):
                    reply.append(management)
 

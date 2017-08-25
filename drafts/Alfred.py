@@ -8,7 +8,6 @@ class RSISentimentAnalyzer(object):
         self.rsiInverted = rsiInverted
 
     def confirm(self, forBUY, rsiMaker):
-
         rsiSwitch = forBUY if(not self.rsiInverted) else not forBUY
         rsiOK = self.rsiAlwaysOK or (rsiSwitch and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI>rsiMaker.oscHigh*0.8 and not rsiSwitch)
         if(rsiOK):
@@ -38,7 +37,9 @@ class RiskManagementStrategyBasicOption(object):
         return  currentDelta < - self.lossTrigger*mspread
 
     def confirm(self, forBUY, strategyMaker):
-        return self.sentimentAnalyzer.confirm(forBUY, strategyMaker)
+        # if we're flipped, for a BUY order, we want to confirm if it is ok to flip to a SELL...
+        forBUYactual = (not forBUY) if(self.flipped) else (forBUY)
+        return self.sentimentAnalyzer.confirm(forBUYactual, strategyMaker)
 
 
 class RiskManagementStrategy(object):
@@ -53,7 +54,8 @@ class RiskManagementStrategy(object):
         self.options.append(option)
 
 
-    def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance,sizeMax):
+    def watchTrigger(self, mspread, currentDelta, currentQuote, rsiMaker, parentPos, posMaker, trailStart, trailDistance,
+                    currentlyEngagedSize, maxEngagedSize):
         for opt in self.options:
             if(opt.triggered(mspread, currentDelta, currentQuote)):
                 # so, supposed parentPos is in loss, we're taking a position that is going to be a buy
@@ -64,30 +66,60 @@ class RiskManagementStrategy(object):
                     if(self.warningsSentiment < 3 or self.warningsSentiment % 3 == 0):
                         logging.warning(msg)
                     self.warningsSentiment +=1
-                elif(sizeMax<=0):
+                elif(maxEngagedSize <= currentlyEngagedSize):
                     if(self.warningsSize<2 or self.warningsSize % 30 == 0): logging.warning("Risk-management position is not attempted because engaged size was reached")
                     self.warningSize+=1
                 else:
                     c = currentQuote
                     size = parentPos.size * opt.sizeFactor
+                    sizeMax = (maxEngagedSize - currentlyEngagedSize)
+                    if(opt.flipped):
+                        afterFlip = currentlyEngagedSize - parentPos.size - size
+                        if(afterFlip<0):
+                            if(afterFlip < -maxEngagedSize):
+                                # ces - parSize - size < -mes ==> size > ces + mes - parSize
+                                sizeMax = currentlyEngagedSize + maxEngagedSize - parentPos.sizeMax
+                            else:
+                                sizeMax = size
+
                     if(size>sizeMax):
                         logging.warning("risk-management position, size {} reduced to {}, because of max-size limit".format(size, sizeMax))
                         size=sizeMax
 
                     self.warningsSize = 0
                     self.warningsSentiment  = 0
-                    relevantRisk = (c.bid.o - opt.reRisk * mspread) if(parentPos.forBUY) else (c.ask.o + opt.reRisk*mspread)
-                    relevantProfit = (c.ask.o + opt.profit * mspread) if (parentPos.forBUY) else (c.bid.o - opt.profit*mspread)
-                    trailStopTrigger = (c.ask.o + trailStart * mspread) if(parentPos.forBUY) else (c.bid.o - trailStart*mspread)
+                    forBUY = parentPos.forBUY if(not opt.flipped) else (not parentPos.forBUY)
+                    relevantRisk = (c.bid.o - opt.reRisk * mspread) if(forBUY) else (c.ask.o + opt.reRisk*mspread)
+                    relevantProfit = (c.ask.o + opt.profit * mspread) if (forBUY) else (c.bid.o - opt.profit*mspread)
+                    trailStopTrigger = (c.ask.o + trailStart * mspread) if(forBUY) else (c.bid.o - trailStart*mspread)
                     ##
-                    pos2 = posMaker.make(parentPos.forBUY, currentQuote,
+
+                    forBUY = parentPos.forBUY
+
+                    benef = 0.0
+                    benefRatio = 0.0
+                    todo = "take-position"
+                    # with oanda API we can close a 1 lot BUY and open a 2 lot SELL by placing a 3 lot SELL.
+                    # so we play this trick:
+                    if(opt.flipped):
+                        forBUY = not forBUY
+                        size += parentPos.size
+                        # how much do we lose on parenPos?
+                        benef = parentPos.quoteProfit(currentQuote, True)
+                        benefRatio = 100.0*benef/parentPos.expLoss
+                        todo = "flip-position"
+
+                    pos2 = posMaker.make(forBUY, currentQuote,
                                           size, relevantRisk, relevantProfit,
                                           trailStopTrigger, trailDistance*mspread)
                     logging.critical("{} - recommend taking risk-management position ({}) size={}, at {} with take-profit:{} and save-loss:{} (RSI:{})".format(
-                                  currentQuote.time, ("BUY" if(parentPos.forBUY) else "SELL"), size,
-                                  (c.bid.o if(parentPos.forBUY) else c.ask.o),
+                                  currentQuote.time, ("BUY" if(forBUY) else "SELL"), size,
+                                  (c.bid.o if(forBUY) else c.ask.o),
                                   relevantProfit, relevantRisk, val))
-                    return ("risk-mgt-trigger", "take-position", 0.0, 0.0, val, pos2)
+                    if(opt.flipped):
+                        pos2 = (pos2, parentPos)
+
+                    return ("risk-mgt-trigger", todo, benef, benefRatio, val, pos2)
 
 
 
@@ -128,7 +160,7 @@ class RiskManagementStrategy(object):
                         st = bam.start()
                         en = bam.end()
                         rem = rem[0:st] + rem[en:]
-                    sf = mapped['x'] if(mapped.has_key('x')) else (mapped['f'] if(mapped_as_key('f')) else 2.0)
+                    sf = mapped['x'] if(mapped.has_key('x')) else (mapped['f'] if(mapped.has_key('f')) else 2.0)
                     flipped = mapped.has_key('f')
                     if(mapped.has_key('f') and mapped.has_key('x')):
                         raise ValueError("{} - parsing {}, cannot specify both x (extend by factor) and f (flip trade)".format(bark, rem))
@@ -252,7 +284,7 @@ class TradeStrategy(object):
                sizeMax = self.maxEngagedSize - currentlyEngagedSize
                management = self.riskManagement[n].watchTrigger(self.mspread, benef, candle,
                                                    self.rsiLowMaker, posN, posMaker,
-                                                   trailStart, trailDistance, sizeMax)
+                                                   trailStart, trailDistance, currentlyEngagedSize, self.maxEngagedSize)
                if(management is not None):
                    reply.append(management)
 
