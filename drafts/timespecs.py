@@ -144,7 +144,7 @@ class weektimespec(object):
 
 
 
-# 
+#
 # hello="mon-fri@9:30-16:30=open,mon-thu@18:30-07:30=openx,fri@15:30-sun@14:30=sleep"
 #
 # helloz = parse(hello)

@@ -4,6 +4,7 @@ import numpy as np
 from forwardInstrument import Opportunity
 import pdb, re
 
+""" Might support (myt_support) for Forex Trading Robots based OandA v20 API"""
 __dtconv = {} # a hash to remember conversion of time-strings to time-integers, so that we don't convert them twice (or over and over again)
 
 
