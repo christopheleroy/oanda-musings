@@ -1,0 +1,36 @@
+[
+
+{"security": [
+   ["trail", "profit"],
+   ["risk", "insurance", "msm"]
+ ]
+},
+{"for":{"tty":"pts/1"},"default":{"select":"USD_CNH"}},
+{"for":{"tty":"pts/2"},"default":{"select":"EUR_CHF"}},
+{"for":{"tty":"pts/3"},"default":{"select":"NZD_USD"}},
+{"for":{"tty":"pts/4"},"default":{"select":"EUR_USD"}},
+{"for":{"tty":"pts/5"},"default":{"select":"USD_CHF"}},
+{"for":{"tty":"pts/6"},"default":{"select":"GBP_USD"}},
+{"for":{"tty":"pts/7"},"default":{"select":"AUD_USD"}},
+{"for":{"tty":"pts/8"},"default":{"select":"USD_CAD"}},
+{"for":{"tty":"pts/10"},"default":{"select":"EUR_JPY"}},
+{"for":{"tty":"pts/11"},"default":{"select":"EUR_AUD"}},
+{"for":{"tty":"pts/12"},"default":{"select":"USD_JPY"}},
+
+{"for":{"select":"USD_CNH"},"defaults":{"calendar":"sun@20:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+
+
+ {"for":"*",
+   "defaults": {
+     "bibari": true,
+     "risk": 47.0, "profit": 65.0,
+     "trigger": 11.0,
+     "msm": 7.0,
+     "trail": "10:10,12:9,15:8,20:5,30:3,40:2",
+     "insurance": "20:2f25r20p",
+     "size": 1000.0
+   }
+ }
+
+
+]

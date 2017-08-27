@@ -1,6 +1,6 @@
 
-import argparse, re, pdb, time, logging
-import oandaconfig
+import argparse, re, pdb, time, logging, os
+import oandaconfig, timespecs
 import v20
 
 import Alfred
@@ -9,12 +9,16 @@ from myt_support import TradeLoop, trailSpecsFromStringParam, PositionFactory, \
                          getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles, getLiveCandles
 
 ## Setting PARAMETER PARSING:
+defCFG = os.environ('ZORRO_V20_CONFIG') if(os.environ.has_key('ZORRO_V20_CONFIG')) else "~/.v20.conf"
+defSUPER = os.environ('ZORRO_SUPER') if(os.environ.has_key('ZORRO_SUPER')) else None
 parser = argparse.ArgumentParser()
 parser.add_argument('--bibari', action='store_true')
 parser.add_argument('--ks', type=int, default=22, help='in Bibari, the #-periods for kijun')
 parser.add_argument('--ts', type=int, default=5, help='in Bibari, the #-periods for tenkan')
 parser.add_argument('--xos', type=int, default=5, help='in Bibari, number of period in the past to detect Kijun/Tenkan cross-over')
 
+
+parser.add_argument('--v20config', help='point to the v20-configuration yaml file', default=defCFG)
 parser.add_argument('--size', nargs='?', type=float, default=1000.0,
                     help="size of the transaction in units (default 1000, which is a micro-lot in most pairs)");
 parser.add_argument("--start", nargs='?', type=float, default=5000.0,
@@ -58,6 +62,14 @@ parser.add_argument('--dir', type=str, help='candle-cache directory')
 parser.add_argument('--since', type=str, help="start simulation then, as RFC3339")
 parser.add_argument('--till', type=str, help="end simulation then, as RFC3339")
 parser.add_argument('--loglevel', type=int)
+parser.add_argument('--pq', action='store_true', help='silence log messages about parsing parameters')
+parser.add_argument('--super', nargs='?',
+                    help='point to a super-args file', default=defSUPER)
+parser.add_argument('--session', nargs='?',
+                    help='provide a tag for the session, may be combined with --super to set default params for a session')
+parser.add_argument('--tty', action='store_true',
+                    help='will invoke unix command tty to use as session tag, but assign it to argument tty, but with /dev/ or /devices/ removed. This may be helpful instead of the session tag (or in combination with it)')
+
 parser.add_argument('--instruments', action='store_true', help="force using cached-instrument definitions (use only with option --dir)")
 parser.add_argument('--insurance', help='Risk-Management specs for 2nd, 3rd or n-th trade to counter risk of first position')
 parser.add_argument('--msm', type=float, default=20, help="Max Size Multiple: maximum number of multiple of starting size for total engaged size, when insurance kicks in. eg. with a 2x insurance and size 1000, the msm of 20 will prevent taking positions totaling a size above 20000")
@@ -69,8 +81,24 @@ parser.add_argument('--nzd', action='store_true', help='avoid the hourly/daily l
 parser.add_argument('--tzt', action='store_true', help='check on candle stream timing (will do nothing eventually)')
 parser.add_argument('--hal', action='store_true', help='not lowAheadOfHigh or highAheadOfLow - see getCachedBacktrackingCandles')
 
+parser.add_argument('--calendar', nargs='?')
+
 ## Parse Arguments
 args = parser.parse_args()
+
+if(args.loglevel is not None and not args.pq):
+    logging.basicConfig(level=0)
+if(args.tty):
+    import subprocess
+    _tty = subprocess.check_output('tty')
+    args.tty = _tty.rstrip().replace("/devices/","").replace("/dev/","")
+    if(args.session is not None and args.session == 'tty'):
+        args.session = _tty
+
+if(args.super):
+    import superargs
+    supersetsecurity=[ ['profit', 'trail'], ['insurance','trail','msm']]
+    superargs.superimposeFromFile(parser, args, args.super, supersetsecurity)
 
 # Adjust log levels
 if(args.loglevel is not None):
@@ -85,9 +113,12 @@ def hourlydaily(lastTime,helloTime):
 money = args.start
 slices = args.slice.split("/")
 trailSpecs = trailSpecsFromStringParam(args.trail)
+calendarSpecs = None
+if(args.calendar):
+    calendarSpecs = timespecs.parse(args.calendar)
 
 cfg = oandaconfig.Config()
-cfg.load("~/.v20.conf")
+cfg.load(args.v20config)
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 posMaker = PositionFactory(50,50) if(args.pessimist) else PositionFactory(100,0)
 looper = TradeLoop(api, cfg.active_account, args.select, 200*1000.0)
@@ -181,6 +212,7 @@ lastTime = firstTime
 helloTime = firstTime
 helloMoney = money
 logging.critical("{} - MONEY: {} - Diff: {}".format(helloTime, helloMoney, 0.0))
+timeTag = "ok"
 
 for d in dataset:
     highCandle = d[0]
@@ -194,21 +226,25 @@ for d in dataset:
             helloTime = lastTime
 
         robot.digestLowCandle(c)
-        #print(c)
+        if(calendarSpecs is not None): timeTag = timespecs.timeTag(c.time, calendarSpecs,"ok")
         decisions = robot.decision(looper, posMaker)
         for dec in decisions:
             event,todo,benef,benefRatio,rsi,pos1 = dec
 
             if(todo == "take-position"):
-                pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
-                if(args.execute):
-                    tryIt = posMaker.executeTrade(looper, pos1)
-                    if(tryIt is not None):
-                        logging.warning("Info position taken with id={}: {}".format(tryIt[1], tryIt[0]))
-                    else:
-                        logging.critical("Unable to take position {} for various reasons".format(pos1))
+                if(timeTag not in ["open","ok"]):
+                    logging.warning("Decision to 'take-position' is skipped timeTag={}".format(timeTag))
                 else:
-                    looper.positions.append(pos1)
+                    pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,trailSpecs, robot.mspread, looper.instrument.minimumTrailingStopDistance)
+                    if(args.execute):
+                        tryIt = posMaker.executeTrade(looper, pos1)
+                        if(tryIt is not None):
+                            logging.warning("Info position taken with id={}: {}".format(tryIt[1], tryIt[0]))
+                        else:
+                            logging.critical("Unable to take position {} for various reasons".format(pos1))
+                    else:
+                        looper.positions.append(pos1)
+
             elif(todo=='close'):
                 logging.critical( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); size={5}; RSI={3}".format(c.time,
                                    event, benef, round(rsi,2), round(benefRatio,2), pos1.size))
@@ -230,30 +266,35 @@ for d in dataset:
                 closePos = pos1[1]
                 pos1 = pos1[0]
 
-                logging.critical("{} -- Flipping position with event {} - with impact {} ({}%)".format(c.time, event, benef, round(benefRatio,2)))
-                tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
-                counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
-
-                if(args.execute):
-                    tryIt = posMaker.executeTrade(looper, pos1)
-                    if(tryIt is not None):
-                        logging.warning("Info position taken with id={}: {}".format(tryIt[1], tryIt[0]))
-                    else:
-                        logging.critical("Unable to take position {} for various reasons".format(pos1))
+                if(timeTag not in ["ok", "open","flips"]):
+                    logging.info("Decision to 'flip-position' is skip because timeTag={}".format(timeTag))
                 else:
-                    # with the oanda API, to flip from 1lot BUY to a 2lot SELL, we push a  3lot SELL through the API
-                    # in simulation, the robot will send a 3lot SELL, so let's account for it correctly here.
-                    newPosArray = filter(lambda p: p.entryQuote.time != closePos.entryQuote.time, looper.positions)
-                    if(len(newPosArray) != len(looper.positions)-1):
-                        raise RuntimeError("bug - unable to remove closing postion (in simulation)")
-                    pos1.size -= closePos.size
-                    if(pos1.size<0):
-                        raise RuntimeError("bug - position size rendered negative...")
-                    elif(pos1.size>0):
-                        newPosArray.append(pos1)
-                        logging.warning("Position flip was same as closing position...")
-                    money += benef*closePos.size
-                    looper.positions = newPosArray
+
+                    logging.critical("{} -- Flipping position with event {} - with impact {} ({}%)".format(c.time, event, benef, round(benefRatio,2)))
+                    tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
+                    counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
+
+                    if(args.execute):
+                        tryIt = posMaker.executeTrade(looper, pos1)
+                        if(tryIt is not None):
+                            logging.warning("Info position taken with id={}: {}".format(tryIt[1], tryIt[0]))
+                        else:
+                            logging.critical("Unable to take position {} for various reasons".format(pos1))
+
+                    else:
+                        # with the oanda API, to flip from 1lot BUY to a 2lot SELL, we push a  3lot SELL through the API
+                        # in simulation, the robot will send a 3lot SELL, so let's account for it correctly here.
+                        newPosArray = filter(lambda p: p.entryQuote.time != closePos.entryQuote.time, looper.positions)
+                        if(len(newPosArray) != len(looper.positions)-1):
+                            raise RuntimeError("bug - unable to remove closing postion (in simulation)")
+                        pos1.size -= closePos.size
+                        if(pos1.size<0):
+                            raise RuntimeError("bug - position size rendered negative...")
+                        elif(pos1.size>0):
+                            newPosArray.append(pos1)
+                            logging.warning("Position flip was same as closing position...")
+                        money += benef*closePos.size
+                        looper.positions = newPosArray
 
 
             elif(todo=='trailing-stop'):
