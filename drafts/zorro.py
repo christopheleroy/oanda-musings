@@ -1,4 +1,4 @@
-
+#!/bin/env python
 import argparse, re, pdb, time, logging, os
 import oandaconfig, timespecs
 import v20
