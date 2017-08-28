@@ -5,6 +5,11 @@
    ["risk", "insurance", "msm"]
  ]
 },
+
+{"tz":"gmt", "reminder":true, "this is just a comment": true, "summer":true,
+ "sidney": "10pm-7am", "tokyo":"11pm-8am", "frankfurt":"6am-2pm",
+ "london": "7am-4pm", "new-york":"12pm-8pm"},
+
 {"for":{"tty":"pts/1"},"default":{"select":"USD_CNH"}},
 {"for":{"tty":"pts/2"},"default":{"select":"EUR_CHF"}},
 {"for":{"tty":"pts/3"},"default":{"select":"NZD_USD"}},
@@ -17,7 +22,18 @@
 {"for":{"tty":"pts/11"},"default":{"select":"EUR_AUD"}},
 {"for":{"tty":"pts/12"},"default":{"select":"USD_JPY"}},
 
-{"for":{"select":"USD_CNH"},"defaults":{"calendar":"sun@20:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"USD_CNH"},"defaults":{"calendar":"sun@22:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"USD_JPY"},"defaults":{"calendar":"sun@22:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"NZD_USD"},"defaults":{"calendar":"sun@22:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"AUD_USD"},"defaults":{"calendar":"sun@22:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"EUR_JPY"},"defaults":{"calendar":"sun@23:30-fri@16:00=open,fri@16:00-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"EUR_AUD"},"defaults":{"calendar":"sun@22:30-fri@16:00=open,fri@16:00-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"EUR_CHF"},"defaults":{"calendar":"mon@6:30-fri@14:00=open,fri@14:00-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"EUR_USD"},"defaults":{"calendar":"mon@6:30-fri@14:00=open,fri@14:00-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"USD_CHF"},"defaults":{"calendar":"mon@6:30-fri@14:00=open,fri@14:00-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"GBP_USD"},"defaults":{"calendar":"mon@7:30-fri@15:30=open,fri@15:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+{"for":{"select":"USD_CAD"},"defaults":{"calendar":"mon@12:30-fri@19:30=open,fri@19:30-sat@01:15=flips,mon-sun@00:00-00:00=close"}},
+
 
 
  {"for":"*",
