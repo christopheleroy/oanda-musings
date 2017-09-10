@@ -263,15 +263,19 @@ class IchimokuCalculation(object):
         return self.mq.full()
 
 
-    def pronostic(self,depth=5):
+    def pronostic(self,depth=5,skipping=0):
         if(self.mq.full()):
-            mqv5 = self.mqVals.lastN(depth)
+            mqv5 = self.mqVals.lastN(depth+skipping)
             mqv5.reverse()
             next_t_over_k = None
             next_x = None
             itCnt = 0
             # next: is the previous value in the reversed iteration - so next_x is for a time after x
             for x in mqv5:
+                if(skipping>0):
+                    skipping -= 1
+                    continue
+                    
                 itCnt+=1
                 tok = True if(x.tenkan > x.kijun) else(False if(x.tenkan<x.kijun) else None)
                 if(next_t_over_k is None and tok is not None):
