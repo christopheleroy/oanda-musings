@@ -1,7 +1,9 @@
 #!/bin/env python
-import argparse, re, pdb, time, logging, os
+import argparse, re, pdb, time, os, logging
 import oandaconfig, timespecs
 import v20
+from robologger import corelog
+from robologger import oscillog
 
 import Alfred
 import Bibari
@@ -87,7 +89,8 @@ parser.add_argument('--calendar', nargs='?')
 args = parser.parse_args()
 
 if(args.loglevel is not None and not args.pq):
-    logging.basicConfig(level=0)
+    logging.basicConfig(level=logging.INFO)
+
 if(args.tty):
     import subprocess
     _tty = subprocess.check_output('tty')
@@ -102,7 +105,10 @@ if(args.super):
 
 # Adjust log levels
 if(args.loglevel is not None):
-    logging.basicConfig(level=args.loglevel)
+    # logging.basicConfig(level=args.loglevel)
+    oscillog.setLevel(args.loglevel)
+    corelog.setLevel(args.loglevel)
+    
 
 def hourlydaily(lastTime,helloTime):
     if(args.hourly):

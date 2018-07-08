@@ -1,6 +1,6 @@
 
 from teeth import MovingQueue
-import logging
+from robologger import oscillog
 import numpy as np
 
 def defaultValuator(candle):
@@ -83,7 +83,7 @@ class OscillatorCalculation(object):
             self.avgLoss = self.sumLoss/self.size if(self.size>0) else 0.0
             self.RS = self.avgGain / self.avgLoss if(self.avgLoss>0) else 1.0
             self.RSI = 100*(self.RS/(1.0+self.RS))
-            logging.debug("{}\t{} vs {}\t{} vs {}\tRS={}\tRSI={}".format(val, nGain, nLoss, self.avgGain, self.avgLoss, self.RS, self.RSI))
+            oscillog.info("{}\t{} vs {}\t{} vs {}\tRS={}\tRSI={}",val, nGain, nLoss, self.avgGain, self.avgLoss, self.RS, self.RSI)
 
         self.mq.add(candleItem)
         self.recentVal = val
@@ -136,12 +136,12 @@ class IchimokuPoint(object):
 
     def distanceToCloudTop(self,p,mspread=1.0):
         sTop = (self.senkouA if(self.senkouA>self.senkouB) else self.senkouB)
-        logging.debug("p={}|senkou A:{} vs B:{}; Top = {}; distance = {}  distance/spread={}".format(p,self.senkouA, self.senkouB, sTop, p-sTop, (p-sTop)/mspread))
+        oscillog.debug("p={}|senkou A:{} vs B:{}; Top = {}; distance = {}  distance/spread={}".format(p,self.senkouA, self.senkouB, sTop, p-sTop, (p-sTop)/mspread))
         return (p-sTop)/mspread
 
     def distanceToCloudBottom(self,p,mspread=1.0):
         sBottom = (self.senkouA if(self.senkouA<self.senkouB) else self.senkouB)
-        logging.debug("p={}|senkou A:{} vs B:{}; Bottom = {}; distance = {} distance/spread={}".format(p,self.senkouA, self.senkouB, sBottom, p-sBottom, (p-sBottom)/mspread))
+        oscillog.debug("p={}|senkou A:{} vs B:{}; Bottom = {}; distance = {} distance/spread={}".format(p,self.senkouA, self.senkouB, sBottom, p-sBottom, (p-sBottom)/mspread))
         return (p-sBottom)/mspread
 
     def chikouSpanCross(self):
@@ -179,7 +179,7 @@ class midpoint(object):
 
 
 class IchimokuCalculation(object):
-    def __init__(self, tenkanSize=9, kijunSize=None, onBid = True):
+    def __init__(self, tenkanSize=9, kijunSize=None, onBid = True, name = None):
 
         if(kijunSize is None):
             kijunSize = 3 * tenkanSize -1
@@ -209,10 +209,19 @@ class IchimokuCalculation(object):
         self.kijunMedianSpread = None
         self.tenkanMedianSpread = None
 
+        self.addMsg = "added: %s "
+        self.skippedMsg = "skipped: %s"
+        self.name = name
+        if(name is not None):
+            self.addMsg = "(" + name + ") "+self.addMsg
+            self.skippedMsg = "(" + name + ") " + self.skippedMsg
+
+
     def add(self, candle):
         rvc = candle.bid.c if(self.onBid) else candle.ask.c
         skipping = self.mq.skip(candle)
         self.mq.add(candle)
+
 
         if(self.mq.currentSize()>=self.kijunSize):
             mql = list(self.mq)
@@ -236,6 +245,7 @@ class IchimokuCalculation(object):
             # when eChikouV is above cChikouV, this is a BULLISH trend (buy)
             # when eChikouV is below cChikouV, this is a BEARISH trend (sell)
             if(not skipping):
+
                 self.mqTK.add( (tenkanV, kijunV, cChikouV, eChikouV, candle.time) )
 
             if(self.mq.full()):
@@ -253,7 +263,13 @@ class IchimokuCalculation(object):
 
                 if(not skipping):
                     self.mqVals.add(p)
+                    oscillog.info(self.addMsg, p)
+                else:
+                    osccilog.debug(self.skippedMsg, p)
+
                 self.lastVal = p
+        else:
+            oscillog.debug("... still augmenting tenkan/kinjun queue ... -- value was %f %s", rvc, ("!" if self.name is None else self.name))
 
 
     def setSkipper(self, skipper):

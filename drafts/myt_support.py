@@ -1,7 +1,8 @@
-import datetime,time, logging
+import datetime,time
 import dateutil.parser
 import numpy as np
 from forwardInstrument import Opportunity
+from robologger import corelog
 import pdb, re
 
 """ Might support (myt_support) for Forex Trading Robots based OandA v20 API"""
@@ -10,7 +11,7 @@ __dtconv = {} # a hash to remember conversion of time-strings to time-integers, 
 
 def getSortedCandles(loopr, kwargs):
     resp = loopr.api.instrument.candles(loopr.instrumentName, **kwargs)
-    if(str(resp.status) != '200'): logging.warning(resp.body)
+    if(str(resp.status) != '200'): corelog.warning(resp.body)
     candles = resp.get('candles',200)
     candles.sort(lambda a,b: cmp(a.time, b.time))
     return candles
@@ -25,7 +26,7 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice, lowAheadOfHigh
 
     xoff = 1 if(not lowAheadOfHigh) else 0
 
-    logging.debug(highKW)
+    corelog.debug(highKW)
     highCandles = getSortedCandles(loopr, highKW)
     # when not lowAheadOfHigh starts with an empty backtracking list, otherwise starts with single high candle and no low candles
     backtracking = [ (highCandles[0],[]) ] if(not lowAheadOfHigh) else []
@@ -35,7 +36,7 @@ def getBacktrackingCandles(loopr, highCount, highSlice, lowSlice, lowAheadOfHigh
         if(i+1<len(highCandles)):
             b = highCandles[i+1]
             lowKW["toTime"] = b.time
-        logging.debug(lowKW)
+        corelog.debug(lowKW)
         lowCandles = getSortedCandles(loopr, lowKW)
         hc = highCandles[i+xoff]
         item = (hc, lowCandles)
@@ -74,7 +75,7 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
     if(not lowAheadOfHigh):
         yup = (highCandles[0], [])
         backtracking.append(yup)
-
+    
     for lc in lIterator:
         ctime = lc.time
         ci = cmp(ctime, hitime)
@@ -269,7 +270,7 @@ class TradeLoop(object):
                     ppos = positionFactory.makeFromExistingTrade(self.mkCandlestickTemplate(), self.account, tradeID)
                     freshPositions.append(ppos)
             else:
-                logging.debug("(trade less position)")
+                corelog.debug("(trade less position)")
 
         # make sure the position array is sorted by openTime
         freshPositions.sort(lambda a,b: cmp(a.entryQuote.time, b.entryQuote.time))
@@ -305,7 +306,7 @@ class TradeLoop(object):
                 self.account = accountResp.get('account', '200')
                 self.accountTime = time.time()
             except:
-                logging.critical( "issue refreshing account ... skipping ..." )
+                corelog.critical( "issue refreshing account ... skipping ..." )
                 if(force or raiseX): raise
 
 
@@ -380,14 +381,14 @@ class PositionFactory(object):
             distance = self.nicepadding(distance, looper.displayPrecision)
             # price    = self.nicepadding(price, looper.displayPrecision)
             tslargs = {"tradeID": str(pos.tradeID), "distance":  distance }
-            logging.debug(tslargs)
+            corelog.debug(tslargs)
             respTSL = None
             if(pos.trailingStopLossOrderId is None):
                 respTSL = looper.api.order.trailing_stop_loss(looper.accountId,  **tslargs)
             else:
-                logging.debug( "replace order {}".format(pos.trailingStopLossOrderId))
+                corelog.debug( "replace order {}", pos.trailingStopLossOrderId)
                 respTSL = looper.api.order.trailing_stop_loss_replace(looper.accountId,  pos.trailingStopLossOrderId, **tslargs)
-            logging.debug("status code:{}\nbody:{}".format(respTSL.status, respTSL.body))
+            corelog.debug("status code:{}\nbody:{}",respTSL.status, respTSL.body)
             if(str(respTSL.status)=='201'):
                 time.sleep(float(wait)/1000.0)
                 looper.refreshPositions(self,True)
@@ -408,9 +409,9 @@ class PositionFactory(object):
 
         response = looper.api.trade.close(looper.accountId, pos.tradeID, **kwargs)
         if(response.status.code == "200" or response.status.code ==200):
-            logging.debug("Closing trade {} with {} was successful".format(pos.tradeID, kwargs))
+            corelog.debug("Closing trade {} with {} was successful".format(pos.tradeID, kwargs))
         else:
-            logging.critical("Unable to close trade: {}\n{}".format(response.status, response.body))
+            corelog.critical("Unable to close trade: {}\n{}".format(response.status, response.body))
             return None
 
 
@@ -462,14 +463,14 @@ class PositionFactory(object):
 
         kwargs['stopLossOnFill'] = {"price": nicepadding(sl, looper.displayPrecision)}
         kwargs['takeProfitOnFill'] = {"price": nicepadding(tp, looper.displayPrecision)}
-        logging.debug(kwargs)
+        corelog.debug(kwargs)
         response = looper.api.order.market(
             looper.accountId,
             **kwargs
         )
         if(not(response.status == 201 or response.status == '201')):
-            logging.critical( "Position / Trade could not be executed...")
-            logging.critical(response.body)
+            corelog.critical( "Position / Trade could not be executed...")
+            corelog.critical(response.body)
         else:
             newTrades =[]
             prevTradeIDs = map(lambda t: t.id, looper.account.trades)
@@ -481,9 +482,9 @@ class PositionFactory(object):
                 if(len(newTrades)==0):
                     noMore -= 1
                     if(noMore>0):
-                        logging.info("new trade not executed yet - waiting again...")
+                        corelog.info("new trade not executed yet - waiting again...")
                     else:
-                        logging.warning("new trade not executed yet - but continuing...")
+                        corelog.warning("new trade not executed yet - but continuing...")
                         return pos, None
 
             newPos = self.makeFromExistingTrade(pos.entryQuote, looper.account, newTrades[0].id)
@@ -584,13 +585,14 @@ class Position(object):
             if(newDesiredDistance<minimumTrailingStopDistance): newDesiredDistance = minimumTrailingStopDistance
 
             if(newDesiredDistance < self.trailingStopDesiredDistance or self.trailingStopDesiredDistance<=0):
-                logging.info("new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance))
+                corelog.info("new desired distance {} spreads = {}".format(okSpec[1], newDesiredDistance))
                 self.trailingStopDesiredDistance = newDesiredDistance
                 self.trailingStopNeedsReplacement = True
             if(self.trailingStopDistance is not None):
                 # then trailing stop is already engage, note a needed replacement only if trailingStopDistance is different than new distance, the moving stop value is taken care by the broker
                 self.trailingStopNeedsReplacement = (newDesiredDistance != round(self.trailingStopDistance,7))
-                logging.info("current trailing stop distance: {}, new desired distance:{}, replacement-needed:{}".format(self.trailingStopDistance, newDesiredDistance, self.trailingStopNeedsReplacement))
+                corelog.info("current trailing stop distance:%s, new desired distance:%s, replacement-needed:%s",
+                              self.trailingStopDistance, newDesiredDistance, self.trailingStopNeedsReplacement)
             return
 
 
@@ -646,11 +648,12 @@ class Position(object):
         if(self.forBUY):
             if(self.trailingStopValue is not None and self.trailingStopValue+self.trailingStopDistance<avgPrice):
                 self.trailingStopValue = avgPrice - self.trailingStopDistance
-                logging.info("updated trailing stop value to {} with distance {}".format(self.trailingStopValue, self.trailingStopDistance))
+                corelog.info("updated trailing stop value to %f with distance %f",self.trailingStopValue, self.trailingStopDistance)
         else:
             if(self.trailingStopValue is not None and self.trailingStopValue-self.trailingStopDistance>avgPrice):
                 self.trailingStopValue = avgPrice+self.trailingStopDistance
-                logging.info("updated trailing stop value to {} with distance {}".format(self.trailingStopValue, self.trailingStopDistance))
+                corelog.info("updated trailing stop value to %f with distance %f",self.trailingStopValue, self.trailingStopDistance)
+        
 
 
     def expectedTrailingStopValue(self, currentQuote):
@@ -702,7 +705,7 @@ class Position(object):
         if(newStopValue is not None and self.trailingStopValue is not None):
             if((self.forBUY and newStopValue < 0.9999*self.trailingStopValue) or
                (not self.forBUY and 0.9999*newStopValue > self.trailingStopValue)):
-               logging.critical( "WARNING: stop value calculations are retrograde!" )
+               corelog.critical( "WARNING: stop value calculations are retrograde!" )
                import pdb; pdb.set_trace()
                newStopValue2 = self.expectedTrailingStopValue(currentQuote)
 

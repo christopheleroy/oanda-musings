@@ -1,7 +1,8 @@
 
-import logging
+from robologger import robolog
 from Alfred import RiskManagementStrategy
 from oscillators import IchimokuCalculation
+
 
 
 
@@ -61,9 +62,9 @@ class TradeStrategy(object):
 
 
     def initialize(self):
-        logging.info("Initializing Bibari")
-        self.highIchimoku = IchimokuCalculation(self.tenkanSize, self.kijunSize)
-        self.lowIchimoku = IchimokuCalculation(self.tenkanSize, self.kijunSize)
+        robolog.info("Initializing Bibari")
+        self.highIchimoku = IchimokuCalculation(self.tenkanSize, self.kijunSize, name= '+high')
+        self.lowIchimoku = IchimokuCalculation(self.tenkanSize, self.kijunSize,  name='-low-')
 
 
     def digestHighCandle(self,candle):
@@ -113,7 +114,7 @@ class TradeStrategy(object):
         nah=False
         hSig, hStr, hDepth, hPrice, hxoTime  = self.highIchimoku.pronostic(self.xoverSize)
         lSig, lStr, lDepth, lPrice, lxoTime  = self.lowIchimoku.pronostic(self.xoverSize)
-        logging.debug("High: {}, Low: {} ".format( (hSig,hStr,hPrice,hxoTime), (lSig,lStr,lPrice,lxoTime)))
+        robolog.debug("High: {}, Low: {} ".format( (hSig,hStr,hPrice,hxoTime), (lSig,lStr,lPrice,lxoTime)))
 
         # if(hSig=='SELL' and lSig=='BUY' and hStr == 'weak' and lStr == 'weak'):
         #     import pdb; pdb.set_trace()
@@ -122,7 +123,7 @@ class TradeStrategy(object):
         if(lStr in ['strong','medium'] or hStr in ['strong','medium']):
             lScore = (10 if(lStr == 'strong')else(5 if(lStr=='medium')else 0))
             hScore = (10 if(hStr=='strong')else(5 if(hStr=='medium')else 0))
-            logging.debug("*hScore={}, lScore={}".format(hScore,lScore))
+            robolog.debug("*hScore={}, lScore={}".format(hScore,lScore))
 
             if(lSig == 'BUY'):
                 lv = self.lowIchimoku.lastVal.distanceToCloudTop(lPrice, self.lowIchimoku.kijunMedianSpread)
@@ -146,7 +147,7 @@ class TradeStrategy(object):
             if(lStr == 'weak'): lScore /= 5.0
             if(hStr == 'weak'): hScore /= 5.0
 
-            logging.debug("hScore={}, lScore={}".format(hScore,lScore))
+            robolog.debug("hScore={}, lScore={}".format(hScore,lScore))
 
         else:
             lScore = 0
@@ -168,15 +169,15 @@ class TradeStrategy(object):
                                           c.bid.o-trailStart*mspread, trailDistance*mspread)
 
                 if(pos1 is not None):
-                    logging.info("Position to take: {}".format(pos1))
+                    robolog.info("Position to take: {}".format(pos1))
                     pos1.calibrateTrailingStopLossDesireForSteppedSpecs(c,self.trailSpecs,mspread, loopr.instrument.minimumTrailingStopDistance)
                     pos1.trailingStopNeedsReplacement = False
 
                 if(pos1 is None):
                     return [ ("none", "wait", 0.0, 0.0, lScore+hScore, None ) ]
                 else:
-                    logging.critical("High: {}, Low: {}".format( (hSig,hStr,hScore), (lSig, lStr, lScore) ) )
-                    logging.critical("Recommend taking position: {}".format(pos1))
+                    robolog.critical("High: {}, Low: {}".format( (hSig,hStr,hScore), (lSig, lStr, lScore) ) )
+                    robolog.critical("Recommend taking position: {}".format(pos1))
                     return  [ ("triggered", "take-position", 0.0, 0.0, lScore+hScore, pos1) ]
             return [ ("none", "wait", 0.0, 0.0, 0, None) ]
 
