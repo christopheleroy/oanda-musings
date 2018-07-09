@@ -1,6 +1,7 @@
 
 from teeth import MovingQueue
 from robologger import oscillog
+from myt_support import nicetime
 import numpy as np
 
 def defaultValuator(candle):
@@ -122,7 +123,7 @@ class IchimokuPoint(object):
 
 
     def __str__(self):
-        return "[{}: K={}; T={}; cC={};, A,B={},{}][P={}]".format(self.time, self.tenkan, self.kijun, self.counterChikou, self.senkouA, self.senkouB,self.relevantClosePrice)
+        return "[{}: K={}; T={}; cC={};, A,B={},{}][P={}]".format(nicetime(self.time), self.tenkan, self.kijun, self.counterChikou, self.senkouA, self.senkouB,self.relevantClosePrice)
 
 
     def isAboveCloud(self, p):

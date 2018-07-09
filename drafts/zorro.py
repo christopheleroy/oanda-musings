@@ -5,10 +5,12 @@ import v20
 from robologger import corelog
 from robologger import oscillog
 
+
 import Alfred
 import Bibari
 from myt_support import TradeLoop, trailSpecsFromStringParam, PositionFactory, \
-                         getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles, getLiveCandles
+                         getSortedCandles, getBacktrackingCandles, getCachedBacktrackingCandles, getLiveCandles, \
+                         nicetime, setTimezoneForLogs
 
 ## Setting PARAMETER PARSING:
 defCFG = os.environ('ZORRO_V20_CONFIG') if(os.environ.has_key('ZORRO_V20_CONFIG')) else "~/.v20.conf"
@@ -19,6 +21,8 @@ parser.add_argument('--ks', type=int, default=22, help='in Bibari, the #-periods
 parser.add_argument('--ts', type=int, default=5, help='in Bibari, the #-periods for tenkan')
 parser.add_argument('--xos', type=int, default=5, help='in Bibari, number of period in the past to detect Kijun/Tenkan cross-over')
 
+
+parser.add_argument('--tz', help='timezone to use when displaying market time', default=None)
 
 parser.add_argument('--v20config', help='point to the v20-configuration yaml file', default=defCFG)
 parser.add_argument('--size', nargs='?', type=float, default=1000.0,
@@ -108,6 +112,10 @@ if(args.loglevel is not None):
     # logging.basicConfig(level=args.loglevel)
     oscillog.setLevel(args.loglevel)
     corelog.setLevel(args.loglevel)
+
+
+if(args.tz is not None):
+    setTimezoneForLogs(args.tz)
     
 
 def hourlydaily(lastTime,helloTime):
@@ -227,7 +235,7 @@ for d in dataset:
     for c in lowCandles:
         lastTime = c.time
         if(hourlydaily(lastTime, helloTime) and (helloMoney != money or not args.nzd)):
-            logging.critical("{} - MONEY: {} - Diff: {}".format(lastTime, money, money - helloMoney))
+            logging.critical("{} - MONEY: {} - Diff: {}".format(nicetime(lastTime), money, money - helloMoney))
             helloMoney = money
             helloTime = lastTime
 
@@ -252,7 +260,7 @@ for d in dataset:
                         looper.positions.append(pos1)
 
             elif(todo=='close'):
-                logging.critical( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); size={5}; RSI={3}".format(c.time,
+                logging.critical( "{0} -- Expecting to Close with event {1} - with impact {2} ({4}%); size={5}; RSI={3}".format(nicetime(c.time),
                                    event, benef, round(rsi,2), round(benefRatio,2), pos1.size))
                 # print("[{},{}] [{}, {}], [{},{}] [{},{}] -- {}".format(c.bid.l, c.ask.l, c.bid.o,c.ask.o,c.bid.h,c.ask.h, c.bid.c, c.ask.c, pos1.relevantPrice(c))
                 tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
@@ -276,7 +284,7 @@ for d in dataset:
                     logging.info("Decision to 'flip-position' is skip because timeTag={}".format(timeTag))
                 else:
 
-                    logging.critical("{} -- Flipping position with event {} - with impact {} ({}%)".format(c.time, event, benef, round(benefRatio,2)))
+                    logging.critical("{} -- Flipping position with event {} - with impact {} ({}%)".format(nicetime(c.time), event, benef, round(benefRatio,2)))
                     tag = ("BUY " if(pos1.forBUY)else "SELL") + " - " + (event+"        ")[0:15] + " - " + ("gain" if(benef>0)else("loss"))
                     counts[tag] = 1+ (counts[tag] if(counts.has_key(tag))else 0)
 
@@ -304,7 +312,7 @@ for d in dataset:
 
 
             elif(todo=='trailing-stop'):
-                logging.info("{} --Time to set trailing stop - {}".format(c.time,pos1.relevantPrice(c)))
+                logging.info("{} --Time to set trailing stop - {}".format(nicetime(c.time),pos1.relevantPrice(c)))
                 if(args.execute):
                     posMaker.executeTrailingStop(looper,pos1)
                     looper.refresh(True)
@@ -313,7 +321,7 @@ for d in dataset:
                     logging.debug( pos1 )
 
             elif(todo=='trailing-progress'):
-                logging.info("{} -- time to advance trailing stop value - {}".format(c.time, pos1.relevantPrice(c)))
+                logging.info("{} -- time to advance trailing stop value - {}".format(nicetime(c.time), pos1.relevantPrice(c)))
                 if(args.execute):
                     looper.refresh(True)
                 else:
@@ -321,7 +329,7 @@ for d in dataset:
                     logging.debug( pos1 )
 
             elif(todo=='trailing-update'):
-                logging.info("{} -- time to (re)set trailing stop - {} - for distance {} instead of {}".format(c.time, pos1.relevantPrice(c), pos1.trailingStopDesiredDistance, pos1.trailingStopDistance))
+                logging.info("{} -- time to (re)set trailing stop - {} - for distance {} instead of {}".format(nicetime(c.time), pos1.relevantPrice(c), pos1.trailingStopDesiredDistance, pos1.trailingStopDistance))
                 pos1.trailingStopDistance = pos1.trailingStopDesiredDistance
                 if(args.execute):
                     posMaker.executeTrailingStop(looper,pos1)
@@ -338,14 +346,14 @@ for d in dataset:
                     import random
                     if(random.randint(0,100)<=args.cfreq):
                         logging.debug(pos1)
-                        logging.info("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
+                        logging.info("{} -- {}% -- RSI={} rvp={} - {}".format(nicetime(c.time), round(benefRatio,3), round(rsi,3), rvp,pos1))
                     else:
                         logging.debug(pos1)
-                if(args.trace): logging.debug("{} -- {}% -- RSI={} rvp={} - {}".format(c.time, round(benefRatio,3), round(rsi,3), rvp,pos1))
+                if(args.trace): logging.debug("{} -- {}% -- RSI={} rvp={} - {}".format(nicetime(c.time), round(benefRatio,3), round(rsi,3), rvp,pos1))
 
                 continue
             else:
-                logging.critical( "{} -- not sure what to do with {}".format(c.time, todo))
+                logging.critical( "{} -- not sure what to do with {}".format(nicetime(c.time), todo))
 
     if(args.execute):
         # when execute - we're using this special "iterator" approach for high-candle
@@ -360,6 +368,6 @@ for d in dataset:
 
 
 logging.critical( "Money: {}".format(money) )
-logging.critical("First time: {}  -- Last time: {}".format(firstTime,lastTime))
+logging.critical("First time: {}  -- Last time: {}".format(nicetime(firstTime),nicetime(lastTime)))
 for x in counts.keys():
     logging.warning("{}: {}".format(x, counts[x]))

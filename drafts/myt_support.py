@@ -3,10 +3,29 @@ import dateutil.parser
 import numpy as np
 from forwardInstrument import Opportunity
 from robologger import corelog
+from pytz import timezone
 import pdb, re
 
 """ Might support (myt_support) for Forex Trading Robots based OandA v20 API"""
 __dtconv = {} # a hash to remember conversion of time-strings to time-integers, so that we don't convert them twice (or over and over again)
+
+__timemft__ = '%Y-%m-%d %H:%M:%S %Z%z'
+
+__timezone__ = timezone('UTC')
+__tzname__   = 'UTC'
+
+def setTimezoneForLogs(tzname):
+    global __timezone__
+    global __tzname__
+    __timezone__ = timezone(tzname)
+    __tzname__   = tzname
+
+def nicetime(iso8601):
+    if(__tzname__ == 'UTC'):
+        return iso8601
+
+    mm = dateutil.parser.parse(iso8601)
+    return mm.astimezone(__timezone__).strftime(__timemft__)
 
 
 def getSortedCandles(loopr, kwargs):
