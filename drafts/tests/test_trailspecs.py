@@ -399,3 +399,8 @@ class TestTrailSpecs(unittest.TestCase):
         self.assertEqual(wow[1], 'close')
         # self.assertEqua105ii X')
         
+
+
+
+if __name__ == '__main__':
+    unittest.main()
