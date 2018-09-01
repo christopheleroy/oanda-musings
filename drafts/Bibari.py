@@ -7,10 +7,11 @@ from oscillators import IchimokuCalculation
 
 
 class IchimokuSentimentAnalyzer(object):
-    def __init__(self,strongRequired = True, consistentRequired=False, alwaysGood = False):
+    def __init__(self,strongRequired = True, consistentRequired=False, alwaysGood = False, ichiMaker = False):
         self.strongRequired = strongRequired
         self.consistentRequired = consistentRequired
         self.alwaysGood = alwaysGood
+        self.ichiMakerBool = ichiMaker
 
     def confirm(self, forBUY, ichiMaker):
         okSET = ["strong"] if(self.strongRequired) else ["strong", "medium"]
@@ -31,7 +32,7 @@ class IchimokuSentimentAnalyzer(object):
             if(ichiMaker[2] == needed and ichiMaker[3] in okSET): return yeepey
 
         except:
-            print ichiMaker
+            print(ichiMaker)
             raise
 
         return False, ichiMaker, "not decisive"
@@ -109,6 +110,8 @@ class TradeStrategy(object):
 
     def decision(self, loopr, posMaker, logMsg=True):
         if(not (self.highIchimoku.full() and self.lowIchimoku.full())):
+            print(("high ichimoku", self.highIchimoku.size, self.highIchimoku.mq.currentSize()))
+            print(("low ichimoku", self.lowIchimoku.size, self.lowIchimoku.mq.currentSize()))
             return [ ("none", "wait", 0.0, 0.0, 0, None)]
 
         nah=False
@@ -152,7 +155,6 @@ class TradeStrategy(object):
         else:
             lScore = 0
             hScore = 0
-
 
         if(loopr.refreshIsDue()): loopr.refreshPositions(posMaker)
         if(len(loopr.positions)==0):

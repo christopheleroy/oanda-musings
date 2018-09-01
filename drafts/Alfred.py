@@ -3,17 +3,24 @@ import logging
 
 
 class RSISentimentAnalyzer(object):
-    def __init__(self, rsiAlwaysOK = False, rsiInverted=False):
+    def __init__(self, rsiAlwaysOK = False, rsiInverted=False, ichiMaker = False):
         self.rsiAlwaysOK = rsiAlwaysOK
         self.rsiInverted = rsiInverted
+        self.ichiMaker   = ichiMaker
 
     def confirm(self, forBUY, rsiMaker):
         rsiSwitch = forBUY if(not self.rsiInverted) else not forBUY
-        rsiOK = self.rsiAlwaysOK or (rsiSwitch and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI>rsiMaker.oscHigh*0.8 and not rsiSwitch)
-        if(rsiOK):
-            return True, rsiMaker.RSI, ""
+        if(self.ichiMaker):
+            wawa = [ rsiMaker[0], rsiMaker[1] ]
+            rsiOK = self.rsiAlwaysOK or (rsiSwitch and "BUY" in wawa and "SELL" not in wawa) or (not rsiSwitch and "SELL" in wawa and "BUY" not in wawa)
+            return rsiOK, 50, ""
         else:
-            return False, rsiMaker.RSI, ("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
+            rsiOK = self.rsiAlwaysOK or (rsiSwitch and rsiMaker.RSI < rsiMaker.oscLow*1.2) or (rsiMaker.RSI>rsiMaker.oscHigh*0.8 and not rsiSwitch)
+
+            if(rsiOK):
+                return True, rsiMaker.RSI, ""
+            else:
+                return False, rsiMaker.RSI, ("Hint to add extra trade for RISK management is pre-empted by RSI: {}".format(rsiMaker.RSI))
 
 
 class RiskManagementStrategyBasicOption(object):
