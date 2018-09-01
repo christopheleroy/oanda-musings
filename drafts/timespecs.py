@@ -130,6 +130,7 @@ class weektimespec(object):
     @staticmethod
     def ts2raw(timeX):
         import dateutil.parser,datetime
+        if(type(timeX) is unicode): timeX = str(timeX)
         if(type(timeX) is str and timeX[4]=='-'):
             timeX = dateutil.parser.parse(timeX)
         elif(type(timeX) is int):
