@@ -123,7 +123,7 @@ class IchimokuPoint(object):
 
 
     def __str__(self):
-        return "[{}: K={}; T={}; cC={};, A,B={},{}][P={}]".format(nicetime(self.time), self.tenkan, self.kijun, self.counterChikou, self.senkouA, self.senkouB,self.relevantClosePrice)
+        return "[{}: T={}; K={}; cC={};, A,B={},{}][P={}]".format(nicetime(self.time), self.tenkan, self.kijun, self.counterChikou, self.senkouA, self.senkouB,self.relevantClosePrice)
 
 
     def isAboveCloud(self, p):
@@ -246,7 +246,6 @@ class IchimokuCalculation(object):
             # when eChikouV is above cChikouV, this is a BULLISH trend (buy)
             # when eChikouV is below cChikouV, this is a BEARISH trend (sell)
             if(not skipping):
-
                 self.mqTK.add( (tenkanV, kijunV, cChikouV, eChikouV, candle.time) )
 
             if(self.mq.full()):
