@@ -31,7 +31,7 @@ class MovingQueue(object):
         if(self.skipper is not None):
             if(len(self.elems)>0):
                 if(self.skipper(self.elems[-1], val)):
-                    return
+                    return False
 
 
         if(len(self.elems)>=self.size):
@@ -41,7 +41,7 @@ class MovingQueue(object):
         # call all subscribers
         for fun in self.subscribers:
             fun(gone,val)
-
+        return True
 
     def flush(self):
         self.elems = deque([])
