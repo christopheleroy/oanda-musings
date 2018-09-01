@@ -552,20 +552,14 @@ class Position(object):
         self.trailingStopNeedsReplacement = False # set to true whenever we realize the trailing stop conditions have changed
 
 
-    # def calibrateTrailingStopLossDesire(self, trailStart, trailDistance):
-    #     if(self.trailSpecs is not None): raise ValueError("cannot call calibrateTrailingStopLossDesire when position is in step-mode")
-    #     if(self.forBUY):
-    #         profit = self.takeProfit - self.entryQuote.ask.o
-    #         self.trailingStopTriggerPrice = self.entryQuote.ask.o + trailStart*profit
-    #         self.trailingStopDesiredDistance =  trailDistance*profit
-    #     else:
-    #         profit = self.entryQuote.bid.o - self.takeProfit
-    #         self.trailingStopTriggerPrice = self.entryQuote.bid.o - trailStart*profit
-    #         self.trailingStopDesiredDistance = trailDistance*profit
-
 
     def calibrateTrailingStopLossDesireForSteppedSpecs(self, currentQuote, trailSpecs, mspread, minimumTrailingStopDistance):
         """ calibrate the Position trailing stop details for the new current quote.
+            This may change the trigger price, and desired distance based on current-quote (latest reading from the market)
+            and the trailing-stop-specc/steps, also based on current median-spread.
+            If a change is deemed necessary, it is made and the property trailingStopNeedsReplacement is set to True.
+            This does NOT change the trailingStopValue (it is changed by 'updateTrailingStopValue')
+
             TrailSpecs and mspread can be passed as None if you just want to use the latest calibrated values for trailSpecs and mspread
             currentquote can be passed as None to calibrate the position at the very beginning."""
 
@@ -661,6 +655,12 @@ class Position(object):
         return self.tradeID is not None
 
     def updateTrailingStopValue(self, currentQuote):
+        """Based on current trailing stop value, and on trailing stop distance,
+           this may change the trailing stop value according to the current-quote.
+           Example: trailing stop is at 100, trailing stop distance is 10, on a BUY order, 
+           then the stop value should increase as soon the current-quote goes abouve 110.
+           
+           This is intended to simulate the change in trailing-stop value that the Broker is supposed to maintain. """
 
         avgPrice = self.relevantPrice(currentQuote)
 
