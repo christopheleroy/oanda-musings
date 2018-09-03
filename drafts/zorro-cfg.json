@@ -39,11 +39,11 @@
  {"for":"*",
    "defaults": {
      "bibari": true,
-     "risk": 47.0, "profit": 65.0,
-     "trigger": 11.0,
+     "risk": 14.0, "profit": 65.0,
+     "trigger": 13.0,
      "msm": 7.0,
      "trail": "10:10,12:9,15:8,20:5,30:3,40:2",
-     "insurance": "20:2f25r20p",
+     "insurance": "11:2f7r18p",
      "size": 1000.0
    }
  }

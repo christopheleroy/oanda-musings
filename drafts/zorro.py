@@ -5,7 +5,7 @@ import v20
 from robologger import corelog
 from robologger import oscillog
 
-
+logging.basicConfig(format='%(asctime)s %(name)s -%(levelname)s- %(message)s', datefmt = '%d-%m %H:%M:%S')
 import Alfred
 import Bibari
 from myt_support import TradeLoop, trailSpecsFromStringParam, PositionFactory, \
@@ -31,6 +31,8 @@ parser.add_argument("--start", nargs='?', type=float, default=5000.0,
                     help="amount of money to start with for backtracking")
 parser.add_argument('--select', nargs='?',
                     help="valid currency-pair")
+parser.add_argument('--fstup', nargs='?', type=float, default=1.0,
+                    help="factor to initiliaze the high candle at start-up, as quite candles are a possibility")
 parser.add_argument('--depth', nargs='?', type=int, default=20,
                     help="number of intervals of the high slice to be used when calculating the medians (moving median across a DEPTH window)")
 parser.add_argument('--drag', nargs='?', type=int, default=50,
@@ -109,7 +111,7 @@ if(args.super):
 
 # Adjust log levels
 if(args.loglevel is not None):
-    # logging.basicConfig(level=args.loglevel)
+    logging.basicConfig(format='%(asctime)s %(name)s -%(levelname)s- %(message)s', datefmt = '%d-%m %H:%M:%S')
     oscillog.setLevel(args.loglevel)
     corelog.setLevel(args.loglevel)
 
@@ -171,13 +173,14 @@ if(args.insurance):
     if(args.rrsi == 'ok'):
         logging.info("Risk Management will have 'rsiAlwaysOK' set to True")
         rmArgs['rsiAlwaysOK'] = True
-        if(args.bibari):
-            rmArgs['alwaysGood'] = True
+            
     elif(args.rrsi=='inverted'):
         logging.info("Risk Management will have rsiInverted set to True")
         rmArgs['rsiInverted'] = True
 
-
+    if(args.bibari):
+            rmArgs['ichiMaker'] = True
+        
     robot.riskManagement = Alfred.RiskManagementStrategy.parse(args.insurance,robot,rmArgs)
     robot.maxEngagedSize = args.msm * args.size
     logging.info("Risk Managment: {} specs parsed, max engage size will be : {}".format(len(robot.riskManagement), robot.maxEngagedSize))
@@ -187,7 +190,7 @@ counts = {}
 
 dataset =  None
 if(args.execute):
-    initDepth = (args.ks*3+args.ts+1) if(args.bibari) else (args.depth+1)
+    initDepth = (args.ks*3+1) if(args.bibari) else (args.depth+1)
     dataset = getLiveCandles(looper, initDepth, slices[0], slices[1])
 elif(args.dir is None):
     dataset = getBacktrackingCandles(looper, args.depth*args.drag, slices[0], slices[1], lowAheadOfHigh = not args.hal)
@@ -211,8 +214,8 @@ if(args.tzt):
         tt = []
         for x in pq[1]:
             zz = "*" if (x.complete) else "!"
-            print "> {} -- {} {}".format(x.time[10:19], time.time(), zz)
-            tt.append(x.time[10:19] + zz);
+            print("> {} -- {} {}".format(x.time[10:19], time.time(), zz))
+            tt.append(x.time[10:19] + zz)
         print "; ".join(tt)
         pq0 = pq[0].next() if(args.execute) else pq[0]
         print ">> high: {} --- {} {}".format(pq0.time, time.time(), ("*" if(pq0.complete)else "!"))
@@ -227,6 +230,8 @@ helloTime = firstTime
 helloMoney = money
 logging.critical("{} - MONEY: {} - Diff: {}".format(helloTime, helloMoney, 0.0))
 timeTag = "ok"
+firstTime = None
+executionReady = False
 
 for d in dataset:
     highCandle = d[0]
@@ -234,16 +239,27 @@ for d in dataset:
 
     for c in lowCandles:
         lastTime = c.time
+        firstTime = firstTime if(firstTime is not None) else lastTime
         if(hourlydaily(lastTime, helloTime) and (helloMoney != money or not args.nzd)):
             logging.critical("{} - MONEY: {} - Diff: {}".format(nicetime(lastTime), money, money - helloMoney))
             helloMoney = money
             helloTime = lastTime
 
         robot.digestLowCandle(c)
+        if(args.execute and not executionReady): 
+            if(not dataset.isnowlive()):
+                logging.debug("--still waiting to be execution ready--")
+                continue
+            else:
+                # import pdb;pdb.set_trace()
+                logging.critical("-- now execution ready !! --")
+                executionReady = True
+
         if(calendarSpecs is not None): timeTag = timespecs.timeTag(c.time, calendarSpecs,"ok")
         decisions = robot.decision(looper, posMaker)
         for dec in decisions:
             event,todo,benef,benefRatio,rsi,pos1 = dec
+            #print((c.time, todo))
 
             if(todo == "take-position"):
                 if(timeTag not in ["open","ok"]):
@@ -354,7 +370,7 @@ for d in dataset:
                 continue
             else:
                 logging.critical( "{} -- not sure what to do with {}".format(nicetime(c.time), todo))
-
+    # import pdb;pdb.set_trace()
     if(args.execute):
         # when execute - we're using this special "iterator" approach for high-candle
         # we must use the iterator.next() only now to make sure we get it at the right time...

@@ -110,8 +110,8 @@ class TradeStrategy(object):
 
     def decision(self, loopr, posMaker, logMsg=True):
         if(not (self.highIchimoku.full() and self.lowIchimoku.full())):
-            print(("high ichimoku", self.highIchimoku.size, self.highIchimoku.mq.currentSize()))
-            print(("low ichimoku", self.lowIchimoku.size, self.lowIchimoku.mq.currentSize()))
+            #print(("high ichimoku", self.highIchimoku.size, self.highIchimoku.mq.currentSize()))
+            #print(("low ichimoku", self.lowIchimoku.size, self.lowIchimoku.mq.currentSize()))
             return [ ("none", "wait", 0.0, 0.0, 0, None)]
 
         nah=False

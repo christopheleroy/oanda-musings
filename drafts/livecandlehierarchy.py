@@ -1,22 +1,23 @@
-
+import pdb
 from myt_support import frequency, getSortedCandles
 import dateutil,time, datetime, logging
+from robologger import oscillog
 
+def addSeconds(ctime, sec):
+    dt = dateutil.parser.parse(ctime)
+    dtp = dt + dateutil.relativedelta.relativedelta(seconds=sec)
+    return dtp.isoformat('T').replace("+00:00", ".000000000Z")
 
-def RFC3339_to_INT(ctime):
-    return int(dateutil.parser.parse(ctime).strftime("%s"))
-
-def INT_to_RFC3339(itime):
-    return datetime.datetime.utcfromtimestamp(itime).isoformat('T') + '.000000000Z'
 
 def slowmogrow(n,k):
     import math
-    return  math.ceil(0.5+math.fabs(math.sin(math.exp(n%600))*k*math.log(n)*math.log(n/k)*math.log(k)))*3*math.log(2)
+    return  math.ceil(0.5+math.fabs(math.sin(math.exp(k+n%600))*k))*2*math.log(2)
+    #return  math.ceil(0.5+math.fabs(math.sin(math.exp(n%600))*k*math.log(n)*math.log(n/k)*math.log(k)))*3*math.log(2)
 
 class LiveCandle(object):
     """ a live candle is an iterator that returns candles, where the next() will be waiting for the next time slot to start (or to finish)"""
 
-    def __init__(self,loopr, slice,initial, price="BA", since=None, require_complete=False, waitMin=0.5, waitMax=60, duration=None):
+    def __init__(self,loopr, slice,initial, price="BA", since=None, require_complete=False, waitMin=0.5, waitMax=60, duration=None, name='nameless'):
         self.slice = slice
         self.looper = loopr
         self.frequency = frequency(slice)
@@ -35,6 +36,9 @@ class LiveCandle(object):
         self.expired = False
         self.since = since
         self.duration = duration
+        self.name = name
+        self.islive = False
+        #print( ('Create', name, duration, since, initial) )
 
     def getRecentCandles(self, cnt, since=None):
         kwargs = {"price": self.price, "granularity": self.slice}
@@ -42,13 +46,22 @@ class LiveCandle(object):
             kwargs["count"] = cnt
         if(since is not None):
             kwargs["fromTime"] = since
-
+        #print(kwargs)
         return getSortedCandles(self.looper, kwargs)
 
     def setBacklog(self):
         """setBacklog is expected to be called once, and sets the backlog to a number of (backtracking) candles in the past"""
-        self.backlog = self.getRecentCandles(None, since = self.since) if(self.since is not None) \
-                                else self.getRecentCandles(self.initial)
+        # if 'since' is not specified, we still have to follow 'since' for high-candles, so we do so
+        since = self.since
+        if(since is None):
+            # heartbeat:
+            heartbeat = self.getRecentCandles(1)
+            t = heartbeat[-1].time
+            since = addSeconds(t, - self.initial * self.frequency)
+        
+        self.backlog = self.getRecentCandles(None, since = since)
+
+
 
     def waitRecentCandles(self,reclevel=0):
         lt = self.lastGiven.time
@@ -64,12 +77,20 @@ class LiveCandle(object):
             if(reclevel>20):
                 # when waiting for a long time, we might be facing a very quiet time for the market - let's sleep more
                 ws += slowmogrow(reclevel-20, self.waitMax)
-            logging.debug("sleep for {} seconds for next {}".format(ws, self.slice))
+            #oscillog.debug("sleep for {} seconds for next {}".format(ws, self.slice))
             time.sleep(ws)
             self.backlog = self.getRecentCandles(3)
+            if(not self.islive and len(self.backlog)>0):
+                latest = self.backlog[0]
+                live = filter(lambda c: cmp(c.time, latest.time) >=0 and not c.complete, self.backlog)
+                if(cmp( live[0].time, addSeconds(latest.time, 2*self.frequency) )<=0):
+                    # pdb.set_trace()
+                    self.islive = True
+            #print(map(lambda c: c.time, self.backlog))
             return self.waitRecentCandles(reclevel+1)
         else:
             logging.debug("no need to wait...")
+
         return zoo
 
 
@@ -77,9 +98,9 @@ class LiveCandle(object):
         if(len(self.backlog)==0):
             self.setBacklog()
             if(self.duration is not None):
-                t0 = RFC3339_to_INT(self.backlog[0].time if(self.since is None) else self.since)
-                texp = t0+self.duration
-                self.timeLimit = INT_to_RFC3339(texp)
+                t0 = (self.backlog[0].time if(self.since is None) else self.since)
+                self.timeLimit = addSeconds(t0, self.duration)
+                #print(('init', self.name, self.timeLimit))
 
         return self
 
@@ -108,11 +129,12 @@ class LiveCandle(object):
 
         if(self.timeLimit is not None and cmp(self.timeLimit, lg.time)<0):
             self.expired = True
+            #print(('Expiring', self.name, lg.time, self.timeLimit))
             raise StopIteration()
 
         self.lastTimeGiven = time.time()
         self.lastGiven = lg
-
+        #print(('Given', self.name, lg.time))
         return self.lastGiven
 
 
@@ -122,11 +144,11 @@ class LiveCandle(object):
 
 class DualLiveCandles(object):
 
-    def __init__(self,loopr, highSlice,initial, lowSlice, price="BA", complete_policy="high"):
+    def __init__(self,loopr, highSlice,initial, lowSlice, price="BA", complete_policy="high", mult=1.0):
         self.looper = loopr
         self.highSlice = highSlice
         self.lowSlice  = lowSlice
-        self.initial   = initial
+        self.initial   = round(initial*mult)
         self.price     = price
 
         self.highSliceFreq = frequency(self.highSlice)
@@ -139,9 +161,14 @@ class DualLiveCandles(object):
         if(not (complete_policy in ["high", "low", "both", "none"])):
             raise ValueError("DualLiveCandles: complete_policy must be either high, low or both")
 
+    def isnowlive(self):
+        if(self.lowLC is not None and self.lowLC.islive): return True
+        if(self.highLC is not None and self.highLC.islive): return True
+        return False
+
     def __iter__(self):
         if(self.highLC is None):
-            self.highLC = LiveCandle(self.looper,self.highSlice, self.initial, self.price, waitMax = 5.0, require_complete = (self.complete_policy in ["high", "both"]))
+            self.highLC = LiveCandle(self.looper,self.highSlice, self.initial, self.price, waitMax = 5.0, require_complete = (self.complete_policy in ["high", "both"]), name='high:'+self.highSlice)
 
         return self
 
@@ -151,14 +178,15 @@ class DualLiveCandles(object):
             return ( self.highLC, [] )
         else:
             lt = self.highLC.lastGiven.time
+            lt0 = lt
             if( self.complete_policy in ["high", "both"] ):
-                lt = INT_to_RFC3339( self.highSliceFreq + RFC3339_to_INT(lt))
+                lt = addSeconds(lt, + self.highSliceFreq)
 
             waitMax = 5.0 if(self.lowSliceFreq/5.0 < 5.0) else float(int(self.lowSliceFreq/5.0))
             waitMin = 0.5 if(self.lowSliceFreq<30) else int(self.lowSliceFreq / 30.0)
             self.lowLC = LiveCandle(self.looper, self.lowSlice, self.initialLow, self.price,
                                     waitMin = waitMin, waitMax = waitMax, since = lt, duration = self.highSliceFreq,
-                                    require_complete = (self.complete_policy in ["low", "both"]))
+                                    require_complete = (self.complete_policy in ["low", "both"]), name='low:' + self.lowSlice)
 
             return (self.highLC, self.lowLC )
 

@@ -124,10 +124,10 @@ def getCachedBacktrackingCandles(looper, dir, highSlice, lowSlice, since, till, 
 
 
 
-def getLiveCandles(looper, depth, highSlice, lowSlice, price = "BA"):
+def getLiveCandles(looper, depth, highSlice, lowSlice, price = "BA", mult = 1.0):
     from livecandlehierarchy import DualLiveCandles
-    dlc =  DualLiveCandles(looper, highSlice, depth, lowSlice, price, complete_policy = "both")
-    return dlc;
+    dlc =  DualLiveCandles(looper, highSlice, depth, lowSlice, price, complete_policy = "both", mult=1.0)
+    return dlc
 
 
 

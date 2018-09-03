@@ -41,6 +41,7 @@ class MovingQueue(object):
         # call all subscribers
         for fun in self.subscribers:
             fun(gone,val)
+            
         return True
 
     def flush(self):

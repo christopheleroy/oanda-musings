@@ -203,7 +203,7 @@ class IchimokuCalculation(object):
         if(not onBid):
             self.roarr = lambda midp,c: midp.actualize(c.ask.h, c.ask.l)
 
-
+        
         self.mqVals = MovingQueue(self.size)
         self.lastVal= None
         self.liveVal = None
