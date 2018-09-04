@@ -231,7 +231,48 @@ def queueSecretSauce(queue, trigger=3,sdf=0.3):
     return mbid,mask, mspread, sdev, bidTrigger, askTrigger
 
 
+class TrailSpecShrinker(object):
+    def __init__(self, frequency, factor):
+        self.frequency = frequency
+        self.factor    = factor
+        if(factor<=0 or factor >= 1.0):
+            raise ValueError("cannot accept a factor that is beyond ]0,1[")
+        if(self.frequency>86400*3):
+            raise ValueError("frequency does not seem appropriate")
+        if(self.frequency < 60):
+            self.frequency = 60
+        
+    def trailSpecShrink(self, entryQuote, currentQuote, trailSpecs):
+        if(trailSpecs is None or len(trailSpecs)==0): return trailSpecs  # do nothing when there is nothing to do
 
+        eqt = dateutil.parser.parse(entryQuote.time)
+        cqt = dateutil.parser.parse(currentQuote.time)
+        deltaT = cqt-eqt
+        periods = deltaT.total_seconds() / self.frequency
+        if(periods>1):
+            periods = round(periods)
+            af = self.factor ** periods
+            import math
+            afTrailSpecs = map(lambda s: (math.ceil(af*s[0]), math.ceil(af*s[1]) ), trailSpecs)
+            afTrailSpecs.sort(lambda x,y: cmp(x[0],y[0]))
+            # print(afTrailSpecs)
+            ntrailSpecs = [ afTrailSpecs[0] ]
+            for n in range(len(afTrailSpecs)):
+                if(n>0):
+                    cc = afTrailSpecs[n]
+                    ll = ntrailSpecs[-1]
+                    if(ll[0] == cc[0]): # same trigger, choose the bigger distance
+                        if(ll[1]< cc[1]):
+                            ntrailSpecs[-1] = cc
+                    elif(ll[0] > cc[0]): #later trigger is smaller, not possible, do nothing
+                        pass
+                    elif(ll[0] < cc[0]): 
+                        if(ll[1]>cc[1]):
+                            ntrailSpecs.append(cc)
+            corelog.info("trailSpecs shrunk with factor " + str(af))
+            return ntrailSpecs
+        else:
+            return trailSpecs 
 
 
 class TradeLoop(object):
@@ -405,9 +446,9 @@ class PositionFactory(object):
             if(pos.trailingStopLossOrderId is None):
                 respTSL = looper.api.order.trailing_stop_loss(looper.accountId,  **tslargs)
             else:
-                corelog.debug( "replace order {}", pos.trailingStopLossOrderId)
+#                corelog.debug( "replace order {}", pos.trailingStopLossOrderId)
                 respTSL = looper.api.order.trailing_stop_loss_replace(looper.accountId,  pos.trailingStopLossOrderId, **tslargs)
-            corelog.debug("status code:{}\nbody:{}",respTSL.status, respTSL.body)
+            #corelog.debug("status code:{}\nbody:{}",respTSL.status, respTSL.body)
             if(str(respTSL.status)=='201'):
                 time.sleep(float(wait)/1000.0)
                 looper.refreshPositions(self,True)
@@ -553,7 +594,7 @@ class Position(object):
 
 
 
-    def calibrateTrailingStopLossDesireForSteppedSpecs(self, currentQuote, trailSpecs, mspread, minimumTrailingStopDistance):
+    def calibrateTrailingStopLossDesireForSteppedSpecs(self, currentQuote, trailSpecs, mspread, minimumTrailingStopDistance, trailingShrinker = None):
         """ calibrate the Position trailing stop details for the new current quote.
             This may change the trigger price, and desired distance based on current-quote (latest reading from the market)
             and the trailing-stop-specc/steps, also based on current median-spread.
@@ -585,6 +626,10 @@ class Position(object):
         currentDistance = self.trailingStopDistance
         unitProfit = self.quoteProfit(currentQuote, True)
         if(unitProfit>0.0):
+            #print("unitProfit: " + str(unitProfit) + " = " + str(unitProfit/mspread) + " x median-spread")
+            if(trailingShrinker is not None):
+                trailSpecs = trailingShrinker(self.entryQuote, currentQuote, trailSpecs)
+
             okSpec = None
             for spec in trailSpecs:
                 if(unitProfit>mspread*spec[0] and (currentDistance is None or mspread*spec[1]<currentDistance)):

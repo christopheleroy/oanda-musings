@@ -60,6 +60,7 @@ class TradeStrategy(object):
         self.maxEngagedSize = None
         self.latestCandle = None
         self.mspread= None
+        self.trailingSpecShrinker = None
 
 
     def initialize(self):
@@ -76,6 +77,20 @@ class TradeStrategy(object):
         self.latestCandle = candle
         self.mspread = self.lowIchimoku.tenkanMedianSpread
 
+    def setTrailingSpecShrinker(self, factor = 0.9, cfreq = None, shrinker=None):
+        if(shrinker is not None):
+            self.trailingSpecShrinker = shrinker
+        else:
+            from myt_support import frequency, TrailSpecShrinker
+            if(cfreq is None):    
+                freq1 = frequency(self.lowSlice) * self.kijunSize
+                freq2 = frequency(self.highSlice) * self.tenkanSize
+                freq = round(0.5(freq1+freq2) if(freq1 > freq2*2 or freq2 > freq1*2) else (freq2 if(freq2>freq1) else freq1)) + 60
+                self.trailingSpecShrinker = TrailSpecShrinker(freq, factor)
+            else:
+                freq = round(cfreq * frequency(self.highSlice))
+                self.trailingSpecShrinker = TrailSpecShrinker(freq, factor)
+
 
     def makeSentimentAnalyzer(self, rmArgs):
         return IchimokuSentimentAnalyzer(**rmArgs)
@@ -87,10 +102,17 @@ class TradeStrategy(object):
        trailStart = self.trailSpecs[0][0]
        trailDistance = self.trailSpecs[0][1]
        hSig,hStr,lSig,lStr,lhScore = ichiMaker
+       tsshrink = None
+       if(self.trailingSpecShrinker is not None):
+           tsshrink = lambda eq,cq,ts: self.trailingSpecShrinker.trailSpecShrink(eq,cq,ts)
+
        currentlyEngagedSize = reduce(lambda s,x: s + x.size , loopr.positions, 0)
        for n in range(len(loopr.positions)):
            posN = loopr.positions[n]
-           posN.calibrateTrailingStopLossDesireForSteppedSpecs(candle,self.trailSpecs,self.mspread, loopr.instrument.minimumTrailingStopDistance)
+           posN.calibrateTrailingStopLossDesireForSteppedSpecs(candle,
+                             self.trailSpecs,self.mspread, 
+                             loopr.instrument.minimumTrailingStopDistance, 
+                             tsshrink)
            # timeTocClose expects hints as to whether the RSI is low (time to buy?) or RSI is high (time to sell?)
            wawa = [ hSig, lSig ]
            rsiLow = ('BUY' in wawa ) and not ('SELL' in wawa)

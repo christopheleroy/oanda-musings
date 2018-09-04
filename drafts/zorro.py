@@ -47,8 +47,11 @@ parser.add_argument('--profit', nargs='?', type=float, default=3.0,
                     help="take-profit, as a multiple of median-spread")
 parser.add_argument('--invert', action='store_true',
                     help="invert the logic on trigger/sdf for when to elect to take a position")
+
 parser.add_argument('--trail', nargs='?', default='1:7,2:4,3:3,5:2,10:1',
                     help="specify the trailing-stop approach (warning: there is a default value, so better specify this parameter)")
+parser.add_argument('--tshrink', nargs='?', default='6:0.9',
+                    help='specify the trail-shrink parameters, e.g 10:0.95 means factor of 0.95 and for 10 times the high candle frequency')
 parser.add_argument('--rsi', nargs='?', default="14:31-71",
                     help="RSI pattern, e.g 14:35-75, means use 14 intervals to compute RSI and consider oversold when < 35 and overbought>=75)")
 parser.add_argument('--after', nargs='?', type=int, default=0)
@@ -156,6 +159,12 @@ if(args.bibari):
     robot = Bibari.TradeStrategy(args.trigger, args.profit, args.risk, args.select, args.size,
                                  args.ts, args.ks, args.xos,
                                  slices[0], slices[1],trailSpecs)
+    tshrinkm = re.match(r"(\d+.?\d*):(0?.\d+)", args.tshrink)
+    if(tshrinkm is not None):
+        robot.setTrailingSpecShrinker(float(tshrinkm.groups()[1]), float(tshrinkm.groups()[0]))
+    else:
+        robot.setTrailingSpecShrinker()
+
 else:
     robot = Alfred.TradeStrategy(args.trigger*pm, args.profit, args.risk,
                    args.depth, args.select, args.size,
