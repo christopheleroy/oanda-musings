@@ -1,2 +1,4 @@
 # exclude compiled pythong artifacts
 *.pyc
+venv
+
