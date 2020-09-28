@@ -32,7 +32,7 @@ def getSortedCandles(loopr, kwargs):
     resp = loopr.api.instrument.candles(loopr.instrumentName, **kwargs)
     if(str(resp.status) != '200'): corelog.warning(resp.body)
     candles = resp.get('candles',200)
-    candles.sort(lambda a,b: cmp(a.time, b.time))
+    candles.sort(key=lambda x: x.time)
     return candles
 
 
@@ -159,6 +159,10 @@ def candleTime(c):
         __dtconv[ c.time ] = int(dateutil.parser.parse(c.time).strftime("%s"))
     return __dtconv[c.time]
 
+def addSeconds(ctime, add_seconds=0):
+    dt = dateutil.parser.parse(ctime)
+    nt = dt + datetime.timedelta(seconds=add_seconds)
+    return re.sub(r':(\d\d)\+00:00$', ':\\1.000000Z', nt.isoformat())
 
 def _find_(lam, coll):
     """return the first element that satisfy a lambda-criterion in a collection """

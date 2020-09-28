@@ -12,6 +12,8 @@ cCASH=6 #money
 cDECN=7 # number of decisions
 cSCORE=8 # score recorded on event
 
+
+
 class BAF(object):
     def __init__(self, topic, cnt, lam, obj):
         self.cnt = cnt
@@ -24,7 +26,8 @@ class BAF(object):
         self.after = self.lam( nobj if(nobj is not None) else self.obj)
         aaa = (self.topic, self.cnt, self.before, self.after)
         if(echo):
-            print(aaa)
+            pass
+            #print(aaa)
         else:
             return aaa
         
@@ -87,7 +90,7 @@ def study(singleCandleIterator, strategy, posMaker, looper, trailSpecs, money, s
                 looper.positions = newPosArray
             elif(todo == 'trailing-stop'):
                 pos1.setTrailingStop(t)
-                print(('ts >> ', cnt, nrnd(pos1.trailingStopValue)))
+                #print(('ts >> ', cnt, nrnd(pos1.trailingStopValue)))
                 
             elif(todo == 'trailing-progress'):
                 baf = BAF('tp', cnt, lambda p: nrnd(p.trailingStopValue), pos1)
@@ -122,6 +125,31 @@ def study(singleCandleIterator, strategy, posMaker, looper, trailSpecs, money, s
         stuff.append( (t, todo,posN, avgBasePrice, avgTargetPrice, avgSaveLossPrice, money, len(decisions), rsMax) )
     return stuff
 
+
+def csvwriterows(csvwriter, rows):
+    for r in rows:
+        c = r[0]
+        rowLeft = [c.time, c.bid.o, c.ask.o, c.mid.o, c.bid.l, c.ask.l, c.mid.l, c.bid.h, c.ask.h, c.mid.h, c.bid.c, c.ask.c, c.mid.c, c.volume ]
+        rowRight = list(r[1:])
+        row = rowLeft + rowRight
+        csvwriter.writerow(row)
+
+def csvreadrows(csvreader, v20):
+    rows = []
+    for r in csvreader:
+        
+        (ctime, bido, asko,mido, bidl,askl,midl,bidh,askh,midh,bidc,askc,midc,vol) = r[0:14]
+
+        zz = {"time":ctime,"volume":vol}
+        zz["bid"] = {"o":bido, "l":bidl, "h":bidh, "c": bidc}
+        zz["ask"] = {"o":asko, "l": askl, "h": askh, "c": askc}
+        zz["mid"] = {"o":mido, "l": midl, "h": midh, "c": midc}
+
+        t = v20.instrument.Candlestick.from_dict(zz, self.ctx)
+        todo,posN, avgBasePrice, avgTargetPrice, avgSaveLossPrice, money, lenDecisins, rsMax = r[14:]
+        r_tuple = (t, todo,posN, avgBasePrice, avgTargetPrice, avgSaveLossPrice, money, len(decisions), rsMax)
+        rows.append(r_tuple)
+    return rows
 
 
 def narrowRanges(stuff3, leeway=20):

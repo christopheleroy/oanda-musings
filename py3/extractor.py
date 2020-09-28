@@ -1,15 +1,18 @@
 
 
-
-def collectInstruments(api, dir):
-    import json
+def listInstruments(api, cfg):
     instResp    = api.account.instruments(cfg.active_account)
     instruments = instResp.get('instruments','200')
     stuff = [{"name": i.name, "pipLocation": i.pipLocation,
                            "displayPrecision": i.displayPrecision,
                            "marginRate": i.marginRate,
                            "minimumTrailingStopDistance": i.minimumTrailingStopDistance} for i in instruments]
+    return stuff
 
+
+def collectInstruments(api, cfg, dir):
+    import json
+    stuff = listInstruments(api, cfg)
     with open((dir + "/instruments.json"), 'w') as jsonf:
         json.dump(stuff, jsonf)
 
@@ -28,7 +31,7 @@ def collectForMonth(api, pair, year, month, dir, granularity="S5", refresh=True)
     month = str(month)
     if(len(month)==1): month = "0" + month
     if(month=="02"):
-        if(year % 4 == 0 and (not day % 100 ==0 or day % 400 ==0)):
+        if(year % 4 == 0 and (not year % 100 ==0 or year % 400 ==0)):
             days+=1
 
     if(not refresh):
@@ -85,11 +88,14 @@ def collectForMonth(api, pair, year, month, dir, granularity="S5", refresh=True)
     return allCandles
 
 
-def writeCollectedCandles(pair, year, month, dir, granularity, allCandles):
-    import csv
+def fileLocation(pair, year, month, dir, granularity):
     month = str(month)
     if(len(month)==1): month = "0" + month
-    with open( "{}/{}-{}.{}.{}.csv".format(dir, year, month, pair, granularity), "w") as outf:
+    return "{}/{}-{}.{}.{}.csv".format(dir, year, month, pair, granularity)
+
+def writeCollectedCandles(pair, year, month, dir, granularity, allCandles):
+    import csv
+    with open( fileLocation(pair, year, month, dir, granularity), "w") as outf:
         csvwriter = csv.writer(outf)
         for r in allCandles:
             csvwriter.writerow(r)
@@ -131,4 +137,4 @@ if __name__ == '__main__':
         candles = collectForMonth(api, args.select, args.year, args.month, args.dir, args.slice, not args.quick)
         writeCollectedCandles(args.select, args.year, args.month, args.dir, args.slice, candles)
     else:
-        collectInstruments(api, args.dir)
+        collectInstruments(api, cfg, args.dir)

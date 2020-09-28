@@ -6,30 +6,39 @@ import v20, csv
 
 from myt_support import TradeLoop, trailSpecsFromStringParam, getSortedCandles, getBacktrackingCandles, PositionFactory
 
-parser = argparse.ArgumentParser()
-
-parser.add_argument('--select', nargs='?',
-                    help="valid currency-pair")
-parser.add_argument('--dir', nargs='?', help='target directory')
-parser.add_argument('--slice', nargs='?', default="M1")
-parser.add_argument('--quick', action='store_true', help='to quickly extend a cache for what is missing in the month')
-parser.add_argument('--year', nargs='?', type=int, default = None)
-parser.add_argument('--month', nargs='?', type=int, default = None)
-parser.add_argument('--instruments', action='store_true')
-
-args = parser.parse_args()
 
 
-cfg = oandaconfig.Config()
-cfg.load("~/.v20.conf")
-api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
+EXECUTING = (__name__=="__main__")
 
-import datetime
-today = datetime.date.today()
-if(args.year is None): args.year = today.year
-if(args.month is None): args.month = today.month
+if(EXECUTING):
 
-def collectInstruments(dir):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--select', nargs='?',
+                        help="valid currency-pair")
+    parser.add_argument('--dir', nargs='?', help='target directory')
+    parser.add_argument('--slice', nargs='?', default="M1")
+    parser.add_argument('--quick', action='store_true', help='to quickly extend a cache for what is missing in the month')
+    parser.add_argument('--year', nargs='?', type=int, default = None)
+    parser.add_argument('--month', nargs='?', type=int, default = None)
+    parser.add_argument('--instruments', action='store_true')
+
+    args = parser.parse_args()
+
+
+    cfg = oandaconfig.Config()
+    cfg.load("~/.v20.conf")
+    api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
+
+    import datetime
+    today = datetime.date.today()
+    if(args.year is None): args.year = today.year
+    if(args.month is None): args.month = today.month
+
+
+
+
+def collectInstruments(cfg, api, dir):
     import json
     instResp    = api.account.instruments(cfg.active_account)
     instruments = instResp.get('instruments','200')
@@ -41,7 +50,8 @@ def collectInstruments(dir):
         json.dump(stuff, jsonf)
 
 
-def collectForMonth(pair, year, month, dir, granularity="S5", refresh=True):
+
+def collectForMonth(fg, api, pair, year, month, dir, granularity="S5", refresh=True):
     kwargs = {"granularity":granularity, "price":"MBA"}
 
     batches = ( ("00:00:00", "03:59:59"), ("04:00:00", "07:59:59"),
@@ -88,7 +98,7 @@ def collectForMonth(pair, year, month, dir, granularity="S5", refresh=True):
                     # no need to refresh what is way in the past...
                     continue
 
-            print kwargs
+            # print kwargs
             resp = api.instrument.candles(pair, **kwargs)
             # import pdb; pdb.set_trace()
             if(str(resp.status) != '200'):
@@ -111,13 +121,24 @@ def collectForMonth(pair, year, month, dir, granularity="S5", refresh=True):
         if(timeToBreak): break
 
 
-    with open( "{}/{}-{}.{}.{}.csv".format(dir, year, month, pair, granularity), "wb") as outf:
+    return allCandles
+
+
+
+def writeCandles(dir, year, month, pair, granularity, allCandles):
+    import csv
+
+    filename = "{}/{}-{}.{}.{}.csv".format(dir, year, month, pair, granularity)
+    with open( filename , "wb") as outf:
         csvwriter = csv.writer(outf)
         for r in allCandles:
             csvwriter.writerow(r)
 
 
-if(not args.instruments):
-    collectForMonth(args.select, args.year, args.month, args.dir, args.slice, not args.quick)
-else:
-    collectInstruments(args.dir)
+
+
+if(EXECUTING):
+    if(not args.instruments):
+        collectForMonth(cfg, api, args.select, args.year, args.month, args.dir, args.slice, not args.quick)
+    else:
+        collectInstruments(args.dir)

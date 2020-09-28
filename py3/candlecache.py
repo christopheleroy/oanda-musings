@@ -95,7 +95,7 @@ class SliceRowIterator(object):
         self.rowIterator = None
 
     def acquireNextFile(self):
-        zfile = next(self.fileIterator)
+        zfile = next(self.fileIterator);print(zfile)
         allrows = []
 
         if(zfile.startswith('s3://')):
@@ -110,11 +110,18 @@ class SliceRowIterator(object):
             import io,csv
             with io.BytesIO(resp['Body'].read()) as linestream:
                 csvr = csv.reader( (line.strip().decode('utf-8') for line  in linestream.readlines() ) )
+                self._appendRows(csvr, allrows)
         else:
             with open(zfile,'r') as zzf:
                 import csv
                 csvr = csv.reader(zzf)
+                self._appendRows(csvr, allrows)
+
+        self.rowIterator = iter(allrows) #.__iter__()
        
+
+    def _appendRows(self, csvr, allrows):
+        """selectively append rows that fit our timerange"""
         for row in csvr:
             if(self.since>row[0]):
                 continue
@@ -123,7 +130,6 @@ class SliceRowIterator(object):
             else:
                 break
 
-        self.rowIterator = iter(allrows) #.__iter__()
 
     def __iter__(self):
         return self
