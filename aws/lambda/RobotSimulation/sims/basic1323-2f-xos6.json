@@ -1,0 +1,12 @@
+{
+    "name":"basic1323-2f",
+    "trigger": 13.0,
+    "profit": 75.0,
+    "risk": 23.0,
+    "dropList": [ [5,10], [10,7], [20,5], [30,3], [40,2], [50,1] ],
+    "insurance": "15:2f10r20p,7:2f7r10p",
+    "msm": 4,
+    "tenkanSize":5,
+    "kijunSize" :22,
+    "xoverSize": 6
+}
