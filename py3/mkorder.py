@@ -28,7 +28,7 @@ cfg.load("~/.v20.conf")
 api = v20.Context( cfg.hostname, cfg.port, token = cfg.token)
 mker = PositionFactory(50,5)
 onceOnly = TradeLoop(api, cfg.active_account, args.select)
-
+import pdb;pdb.set_trace()
 onceOnly.initialize(mker)
 
 
@@ -54,7 +54,11 @@ if(args.list):
                     trailSpecs = trailSpecsFromStringParam(args.trail)
                     p.calibrateTrailingStopLossDesireForSteppedSpecs(candles[-1], trailSpecs, cspread)
     else:
-        print("No trades for {}".format(onceOnly.instrumentName))
+        print("No positions for {}".format(onceOnly.instrumentName))
+
+    for p in onceOnly.findTrades():
+        print(p)
+
     import sys;sys.exit(0)
 elif(args.id is not None):
     poss = [p for p in onceOnly.positions if p.tradeID == args.id]

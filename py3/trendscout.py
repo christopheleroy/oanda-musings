@@ -1,11 +1,13 @@
 # Scout for an instrument with an uptrend or a downtrend
 
-from myt_support import TradeLoop, getSortedCandles
+from myt_support import TradeLoop, getSortedCandles, PositionFactory
 from teeth import MovingQueue
+from robologger import corelog
 import numpy as np
 import pdb
 
 SignalForTrend = {
+    "M": "D",
     "D": "H1",
     "W": "H4",
     "H4": "M15",
@@ -14,6 +16,7 @@ SignalForTrend = {
     "M15": "M1",
     "M30": "M2"
 }
+USE_INITIAL_TRAILING_STOP = True
 
 
 class Exponential_Moving_Average(object):
@@ -65,19 +68,10 @@ class AverageTrueRange(object):
             self.atr = self.mq_tr.reduced(lambda s,tr: s+tr) / self.depth
 
 
-    
-
-
-
-
-    
-    
-
-
-
 
 def assessTrend(api, cfg, instrument_name, slice, mvasize=20):
     looper = TradeLoop(api, cfg.active_account, instrument_name, 200*1000.0)
+    
     candles = getSortedCandles(looper, {"granularity":slice, "price":"MBA", "count":str(15*mvasize)})
     b = None
     trendPool = []
@@ -102,15 +96,128 @@ def assessTrend(api, cfg, instrument_name, slice, mvasize=20):
     return "{} {} {}".format(candles[start].time, ''.join(trendPool[start:]), candles[-1].time)
 
 
+def _extend(obj1, obj2):
+    """add feature of obj2 to obj1 (modifed obj1 but not obj2)"""
+    for k,v in obj2.items():
+        obj1[k] = v
+    return obj1
+
+
+def nicepadding(p, prec):
+    x = format(abs(float(p)), '1.10f')
+    pm = "-" if(float(p)<0) else ""
+    if(x.find(".")>0):
+        x += "00000"
+        return pm + x[0:(x.index(".")+1+prec)]
+    return pm + x
+
+def execOppurtunity(api,cfg, instrument_name, instrument_piplocation, units, opportunity):
+    """since an opportunity has been found and we are bold to execute it, let's enter the market!"""
+    looper = TradeLoop(api, cfg.active_account, instrument_name, 200*1000.0)
+    pfact = PositionFactory()
+
+    looper.initialize(pfact)
+    oppType, iname, breakout, SL, TP, t2time = opportunity
+    forBUY = (oppType == 'BUY')
+    
+    positions = looper.positions 
+    # trades = looper.findTrades()
+    orders = looper.findOrders()
+    # pdb.set_trace()
+    #if(instrument_name.startswith('{}_'.format(looper.account.currency))):
+        #print("{} home currency = {}".format(units, int(units*breakout)))
+        #units = int(units * breakout)
+    
+        
+    if(len(positions)>0 or len(orders)>0):
+        corelog.warn("Investigating, Not executing:for {}, {} positions and {} orders exist!".format(\
+            instrument_name, len(positions), len(orders)))
+        if(len(positions)>0):
+            prec = looper.displayPrecision
+            for p in positions:
+                #pdb.set_trace()
+                
+                if(p.forBUY == forBUY):
+                    pe = 1 if(forBUY) else -1
+                    sldelta = pe * (SL - p.saveLoss)
+                    tpdelta = pe * (TP - p.takeProfit)
+                    corelog.warn("{}: sldelta = {}, tpdelta={}".format(instrument_name, nicepadding(sldelta,prec), nicepadding(tpdelta, prec)))
+                    # if( pe*(p.entryPrice() - breakout)<0) : 
+                    #     # we are in a winning position - is it time to adjust the Stop Loss ?
+                    #     if(sldelta>0):
+                            
+                else:
+                    corelog.warn("{}: reversal?")
+        elif(len(orders)):
+            # we want to recommend cancelling pending orders that go against the found opportunity
+            # if a prending order is a SELL order when the opportunity if a BUY, it should be cancelled (and vice versa)
+            cancellable = (lambda o: o.units<0) if(forBUY) else (lambda o: o.units>0)
+            # non cancellables are adjustable
+            adjustable = lambda o: not cancellable(o)
+            
+            for o in filter(cancellable, orders):
+                print("Order {} should be cancelled.".format(o.id))
+
+            
+            for o in filter(adjustable,orders):
+                print("Order {} is adjustable?".format(o.id))
+                print("Opportunity {}".format(oppType))
+                print("Breakout Price: {} vs {} (now)".format(o.price, breakout))
+                print("Stop Loss: {} vs {} (now)".format(o.stopLossOnFill.price, SL))
+                print("Take Profit: {} vs {} (now)".format(o.takeProfitOnFill.price, TP))
+
+            
+                
+    else:
+        kwargs = {}
+        kwargs['instrument'] = instrument_name
+        pf = 1 if(forBUY) else -1
+        kwargs['units'] = pf * units
+        if(USE_INITIAL_TRAILING_STOP):
+            kwargs['trailingStopLossOnFill'] = {"distance": nicepadding(np.abs(SL-breakout), looper.displayPrecision)}
+
+        kwargs['stopLossOnFill'] = {"price": nicepadding(SL, looper.displayPrecision)}
+        kwargs['takeProfitOnFill'] = {"price": nicepadding(TP, looper.displayPrecision)}
+        kwargs['price'] = nicepadding(breakout, looper.displayPrecision)
+        corelog.debug(kwargs);print(kwargs)
+        response = looper.api.order.limit(cfg.active_account, **kwargs)
+        if(not(response.status == 201 or response.status == '201')):
+            corelog.critical( "Position / Trade could not be executed...")
+            corelog.critical(response.body)
+        else:
+            corelog.info("position taken for {}".format(instrument_name))
+
+
+def lackOfOpportunityCleanUp(api, cfg, instrument_name, instrument_piplocation):
+    looper = TradeLoop(api, cfg.active_account, instrument_name, 200*1000.0)
+    pfact = PositionFactory()
+
+    looper.initialize(pfact)
+    
+    positions = looper.positions 
+    trades = looper.findTrades()
+    orders = looper.findOrders()
+    
+    if(len(orders)>0):
+        print("Cancelling {} order(s) [stop or limit]".format(len(orders)))
+        for o in orders:
+            api.order.cancel(cfg.active_account, o.id)
+    
+
 def assessOpportunity(api, cfg, instrument_name, instrument_piplocation, 
         slice1 = 'H1', 
         slice2 = 'M5', 
         mvasize=20, 
         atr_plus = 10,
         riskfactor = 1.4,
-        showtrace=False):
+        showtrace=False,
+        as_if_at=None,  
+        debug_after=None):
+
+    wTo = {"price":"MBA"} if(as_if_at is None) else {"to": as_if_at, "price":"MBA"}
     looper = TradeLoop(api, cfg.active_account, instrument_name, 200*1000.0)
-    c1 = getSortedCandles(looper, {"granularity":slice1, "price":"MBA", "count":str(15*mvasize)})
+    # import pdb;pdb.set_trace()
+    c1 = getSortedCandles(looper, _extend({"granularity":slice1, "count":str(15*mvasize)}, wTo))
 
     ema1 = Exponential_Moving_Average(mvasize)
     ema2 = Exponential_Moving_Average(mvasize)
@@ -139,7 +246,7 @@ def assessOpportunity(api, cfg, instrument_name, instrument_piplocation,
     if(trend == '^^^^^' or trend == 'vvvvv'):
         trend = 'up' if(trend.startswith('^')) else 'down'
 
-        c2 = getSortedCandles(looper, {"granularity":slice2, "price":"MBA", "count":str(15*mvasize)})
+        c2 = getSortedCandles(looper, _extend({"granularity":slice2, "count":str(15*mvasize)}, wTo))
         atr = AverageTrueRange()
         # we seek 2 consecutive tops, top1, top2, with top1 before top2, top2 better than top1
         top1_candidate = None
@@ -159,9 +266,9 @@ def assessOpportunity(api, cfg, instrument_name, instrument_piplocation,
         if(trend == 'up'):
             betterTop = lambda c, t: c.bid.h > t.bid.h
             validCandle = lambda c, ema: c.bid.c > ema
-            breakoutPrice = lambda c: c.ask.c
-            stopLoss = lambda c,atr: c.ask.c - atr - atr_plus_pips
-            takeProfit = lambda c, atr, rf: c.ask.c + rf*(atr+atr_plus_pips)
+            breakoutPrice = lambda c: np.min([c.bid.c, c.ask.l])
+            stopLoss = lambda c,atr: c.ask.l - atr - atr_plus_pips
+            takeProfit = lambda c, atr, rf: c.ask.h + rf*(atr+atr_plus_pips)
             timeToTrigger = lambda c, boPrice: c.ask.h > boPrice  
             timeToTakeProfit = lambda c, tpPrice: c.ask.h > tpPrice
             timeToSaveLoss = lambda c, slPrice: c.bid.l < slPrice
@@ -170,9 +277,9 @@ def assessOpportunity(api, cfg, instrument_name, instrument_piplocation,
         else:
             betterTop = lambda c,t: c.ask.l < t.ask.l
             validCandle = lambda c,ema: c.ask.c < ema
-            breakoutPrice = lambda c: c.bid.c
-            stopLoss = lambda c,atr: c.bid.c + atr + atr_plus_pips
-            takeProfit = lambda c, atr, rf: c.bid.c - rf*(atr+atr_plus_pips)
+            breakoutPrice = lambda c: np.max([c.bid.c, c.ask.l])
+            stopLoss = lambda c,atr: c.bid.h + atr + atr_plus_pips
+            takeProfit = lambda c, atr, rf: c.bid.l - rf*(atr+atr_plus_pips)
             timeToTrigger = lambda c, boPrice: c.bid.l < boPrice
             timeToTakeProfit = lambda c, tpPrice: c.bid.l < tpPrice
             timeToSaveLoss = lambda c, slPrice: c.ask.h > slPrice
@@ -186,6 +293,9 @@ def assessOpportunity(api, cfg, instrument_name, instrument_piplocation,
 
         for c in c2:
             ptrace(message(c, top1, top2, breakout, opp, engaged_order))
+            if(debug_after is not None and c.time >= debug_after): 
+                print( engaged_order if(engaged_order is not None) else sensible_order )
+
             ema2.add(c)
             atr.add(c)
 
@@ -306,11 +416,20 @@ if __name__ == '__main__':
 
     parser.add_argument('--ref', nargs='?',
                         help="reference currency for scan", default='USD')
+    parser.add_argument('--avoid', nargs='+', help='symbols of currencies or instruments to avoid')
     parser.add_argument('--slices', nargs='*', default=['H1'])
     parser.add_argument('--sp', nargs='*', default=[])
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--rf', type=float, default=1.4)
     parser.add_argument('--gains', action='store_true')
+    parser.add_argument('--swift', action='store_true')
+    parser.add_argument('--asifat', help='iso8601 time, as it we ran at that time')
+    parser.add_argument('--dba', help='debug after (see --trace for good time format)')
+    parser.add_argument('--exec', action='store_true')
+    parser.add_argument('--cleanobs', action='store_true', help='clean-up pending order that are no longer supported by a detected opportunity')
+    parser.add_argument('--lot', type=float, default=0.05)
+    
+    
     
     
     args = parser.parse_args()
@@ -327,17 +446,38 @@ if __name__ == '__main__':
         if(len(args.sp) %2 == 1):
             args.sp.append( SignalForTrend[  args.sp[-1] ])
         slicepairs = list ([ (args.sp[2*i], args.sp[2*i+1]) for i in range(len(args.sp)) if(len(args.sp)>2*i+1) ])
-       
+
 
     for i in stuff:
-        print("Scanning {} ... ".format(i['name']))
+        if(args.avoid is not None and len(args.avoid)>0):
+            if(len(list([a for a in args.avoid if a in i['name'] ]))>0):
+                if(not args.swift):
+                    print("skipping {}".format(i['name']))
+                continue
+        
+        if(not args.swift): 
+            print("Scanning {} ... ".format(i['name']))
+
+        oppCounter = 0
         for sp in slicepairs:
-            opp = assessOpportunity(api, cfg, i['name'], float(i['pipLocation']), 
-                     sp[0], sp[1], riskfactor= args.rf, showtrace=args.trace)
-            if(opp is not None):
-                opp, gains = opp
+            prognosis = assessOpportunity(api, cfg, i['name'], float(i['pipLocation']), 
+                     sp[0], sp[1], riskfactor= args.rf, showtrace=args.trace,
+                     as_if_at=args.asifat,
+                     debug_after=args.dba)
+            if(prognosis is not None):
+                opp, gains = prognosis
+                if(opp is not None): 
+                    oppCounter += 1
+                if(opp and args.exec):
+                    execOppurtunity(api,cfg, i['name'], float(i['pipLocation']),args.lot*100000, opp)
+                    break # skip the search over other pairs
+
+                if(args.swift and opp is None): continue
                 print((sp, opp))
                 if(args.gains):
                     for g in gains:
                         print(g)
-                    
+
+
+        if(args.cleanobs and oppCounter == 0):
+            lackOfOpportunityCleanUp(api, cfg, i['name'], None)

@@ -337,7 +337,10 @@ class TradeLoop(object):
             if(tradeIDs is not None):
                 for tradeID in tradeIDs:
                     ppos = positionFactory.makeFromExistingTrade(self.mkCandlestickTemplate(), self.account, tradeID)
-                    freshPositions.append(ppos)
+                    if(ppos is not None):
+                        freshPositions.append(ppos)
+                    else:
+                        corelog.error("trade {} not found".format(tradeID))
             else:
                 corelog.debug("(trade less position)")
 
@@ -355,12 +358,22 @@ class TradeLoop(object):
 
         return self.api.instrument.Candlestick.from_dict(tmpl, self.api)
 
+    def findTrades(self):
+        self.refresh()
+        me = self.instrumentName
+        return [ t for t in self.account.trades if t.instrument==me]
 
     def findPositionsRaw(self):
         self.refresh()
         me = self.instrumentName
 
         return [p for p in self.account.positions if p.instrument == me]
+
+    def findOrders(self):
+        self.refresh()
+        me = self.instrumentName
+
+        return [ o for o in self.account.orders if o.type in ('STOP', 'LIMIT') and o.instrument == me ]
 
     def refreshIsDue(self):
         return time.time() - self.accountTime > self.freshFrequency_ms/1000.0
@@ -403,7 +416,7 @@ class PositionFactory(object):
 
     def makeFromExistingTrade(self, quoteTmpl, v20Account, tradeID):
         trade = _find_(lambda t: t.id == tradeID, v20Account.trades)
-        orders = ([t for t in v20Account.orders if t.tradeID == tradeID])
+        orders = ([t for t in v20Account.orders if t.type in ('STOP_LOSS', 'TAKE_PROFIT', 'TRAILING_STOP_LOSS') and t.tradeID == tradeID])
         tp0 = _find_(lambda t: t.type == 'TAKE_PROFIT', orders)
         sl0 = _find_(lambda t: t.type == 'STOP_LOSS', orders)
         tsl0 = _find_(lambda t: t.type == 'TRAILING_STOP_LOSS', orders)
